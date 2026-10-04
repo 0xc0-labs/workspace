@@ -35,6 +35,12 @@ A downstream change is not merged until the upstream one is applied.
 The org project board (`github.com/orgs/0xc0-labs/projects/1`) is the source
 of truth for the state of work. **No work starts without an issue on it.**
 
+One exception: the artistlabco.com website (private repo `artistlabco.com`)
+is tracked on its own project, `github.com/orgs/0xc0-labs/projects/3`, linked
+to that repo; that project holds this website's work and nothing else. What it
+needs from the platform (Cloudflare, gitops, Vault) goes on the board as
+usual (operator decision, 2026-10-04).
+
 1. Before editing anything, find the issue for the task, or open one in the
    repo it belongs to and add it to the board.
 2. Move it to `In Progress` when you start, `Blocked` when it waits on
