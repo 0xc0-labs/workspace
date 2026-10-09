@@ -409,6 +409,7 @@ is gone.
 | Bug bounty lab      | reserved range, out of scope                         |
 | Flux                | operator decision (2026-09-22): GitOps is ArgoCD     |
 | One ordered pipeline for the cluster's deployment | the three steps stay apart: OpenTofu creates the VMs, Ansible configures them and installs ArgoCD, ArgoCD syncs gitops (operator decision, 2026-09-30, infrastructure#112) |
+| A self-hosted registry (Zot, Distribution), for now | GHCR stores and serves container images free, private ones included; one in the cluster adds TLS, auth, a volume, a containerd mirror on every node, and an outage that stops every reschedule. Reconsidered if GitHub starts billing container storage (operator decision, 2026-10-10) |
 
 ## Accepted risks
 
@@ -459,7 +460,83 @@ is gone.
 ## Repos and policies
 
 `infrastructure` and `.github`: `main` only, PR required, apply behind manual
-approval. Applications: each decides whether it has a test environment; one
-that does promotes test→prod with the same digest, never a rebuild.
+approval. Applications: each decides whether it has a staging environment; one
+that does promotes staging→prod with the same digest, never a rebuild
+(Application delivery, below).
 ArgoCD points at `gitops/bootstrap/prod/`, which deploys `platform/` and
 `apps/`.
+
+## Application delivery
+
+How an application's code goes from a commit to staging and prod, and how a
+frontend and the backend it reads stay in step (operator decision,
+2026-10-10; workspace#68). It applies to `payload` and `artistlabco.com`
+first; another application adopts it when it gets a staging environment.
+
+**Trunk-based, versioned from Conventional Commits.** `main` is the trunk:
+short-lived branches, squash merges. Every commit on `main` builds an image,
+`sha-<7>`, and deploys nothing. A release candidate is a tag,
+`vX.Y.Z-rc.N`, on a commit of `main`; `git-cliff` computes its version from
+the Conventional Commits since the last release (`feat` minor, `fix` patch,
+`!` major). A release, `vX.Y.Z`, is a GitHub Release on the same commit as an
+rc that passed staging. There are no release branches: a hotfix is a fix on
+`main`, a new rc and a release.
+
+**Promotion is a PR in `gitops`, and the image is never rebuilt.** An rc
+tags the commit's image with its version and opens a PR in `gitops` that
+pins the digest in `apps/<app>/staging`; it merges by itself once its checks
+pass. A release tags the same digest `vX.Y.Z` and opens the PR for
+`apps/<app>/prod`, which the operator merges: that merge is prod's approval.
+The approval lives in `gitops` because GitHub Free gives private repositories
+no environment reviewers, wait timers, environment secrets or rulesets. The
+token that opens these PRs is a GitHub App's, read from Vault through the
+repo's JWT role (.github#61). Vault is reachable only from inside, so the
+private application repos run their whole CI on the self-hosted runners,
+which also spares the GitHub-hosted minutes private repos pay for.
+
+**Staging.** An application with staging has `apps/<app>/base`, `staging/`
+and `prod/` in `gitops`. Prod keeps the application's namespace and ArgoCD
+name; staging runs as `<app>-staging`, with its own database on the shared
+server, its own volumes, and its own `apps/<app>-staging/` path in Vault,
+which the `apps` role already covers. Staging is reached over WARP only, at
+`<app>-staging.int.0xc0.cc`. Applications without staging (`offby1.cc`,
+Mautic) stay as they are. Each staging environment doubles its application's
+memory in the cluster.
+
+**Images of private repositories stay private.** The cluster pulls them from
+GHCR with a read-only token in Vault, which Vault Secrets Operator turns into
+an `imagePullSecret` in each namespace that needs one. Images of public repos
+stay public, as today.
+
+**The backend publishes a versioned contract.** `payload` publishes its
+generated types as `@0xc0-labs/payload-types`, a private npm package in
+GitHub Packages, with the version of the release that built it: an rc
+publishes `X.Y.Z-rc.N` under the `rc` dist-tag, a release `X.Y.Z`. A
+frontend pins it in its `package.json`, so a breaking change in the backend
+fails the frontend's build, never its users. The backend changes by expand
+and contract: it adds (a minor) and deploys, the frontends adopt, and it
+removes (a major) only once no deployed frontend uses what goes.
+
+**CI enforces the order between repos:**
+
+1. A frontend release cannot depend on a prerelease of the contract, so the
+   backend always reaches prod first.
+2. Promoting a frontend to an environment fails unless that environment
+   already runs a backend version at least as high as the one the frontend
+   depends on, read from `gitops`.
+3. Later: a major of the backend does not reach prod while a frontend in prod
+   still depends on the previous major.
+
+**Development sessions.** Each application repo carries gentle-ai at
+workspace scope (`.claude/`, `.mcp.json`, and its tools pinned in
+`mise.toml`), with a permission list that lets an unattended session work up
+to a draft PR and denies merging, marking ready, and anything that applies
+infrastructure. An orchestrator session in the workspace drives a change
+across repos: it messages a named Claude Code session open in each repo
+(`claude -n <repo>`), or starts one in the background (`claude --bg`), and
+hands it the task, the issue, the branch and the contract version. It keeps
+no state of its own: each run reads the issues, PRs, tags and `gitops` pins
+and takes the next step. It may cut an rc, which reaches staging through
+`gitops`; prod is always the operator's merge. Sessions run on the operator's
+Claude subscription: no `ANTHROPIC_API_KEY` in the environment and no
+`--bare`, either of which bills the API instead.
