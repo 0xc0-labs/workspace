@@ -315,6 +315,24 @@ installer, the API) answers 403 there, with no hint of the internal name
 `mautic.int.0xc0.cc`, WARP only, so its login is never on the internet. It runs from `apps/`, under its own narrower
 `AppProject`.
 
+**Payload CMS runs as one multi-tenant instance** (operator decision,
+2026-10-09; workspace#64), the backend of several frontends: one tenant
+per frontend, through Payload's multi-tenant plugin. Its code is the
+`payload` repo, private like `artistlabco.com`. It is public at `payload.0xc0.cc` for the API and media
+the frontends read; `/admin` answers 403 there and is reached only at
+`payload.int.0xc0.cc`, WARP only, as Mautic's admin is. Its media sits on
+a Longhorn RWO volume, so it runs one replica.
+
+**One shared PostgreSQL for the applications that need it** (operator
+decision, 2026-10-09; workspace#64): Payload does not support MySQL or
+MariaDB. One server in `platform/postgres`, with the same rules as the
+shared MariaDB: one database and one role per application, a plain
+StatefulSet from the official image with no operator, and a nightly
+logical dump per database.
+
+**Application repos carry the `app` topic** (operator decision,
+2026-10-09), set in `.github`'s `terraform.tfvars` with the others.
+
 Zones are Proxmox SDN: one Simple zone, a VNet and a subnet per zone, the host
 as `.1` and SNAT for egress, all in OpenTofu through `bpg/proxmox`. Zones
 spanning nodes do not exist: there is one node. Native Proxmox firewall through the same

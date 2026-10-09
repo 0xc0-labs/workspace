@@ -16,10 +16,11 @@ Always start `claude` from here for work touching more than one repo.
 | `gitops/`        | `gitops`          | ArgoCD manifests: `bootstrap/prod/`, `platform/`, `apps/` |
 | `vault/`         | `vault`           | OpenTofu configuration of the cluster's Vault   |
 | `offby1.cc/`     | `offby1.cc`       | Next.js landing page for offby1.cc              |
+| `payload/`       | `payload`         | Payload CMS, multi-tenant backend of the fronts |
 | `app-*/`         | various           | applications                                    |
 
 Dependency order: `.github` → `infrastructure` → `gitops` → `vault` →
-`offby1.cc` and `app-*`.
+`offby1.cc`, `payload` and `app-*`.
 A downstream change is not merged until the upstream one is applied.
 
 ## Changes that cross repos
@@ -194,7 +195,8 @@ What runs today:
   Operator. Rotation is the operator's, by hand in Vault (.github#6).
 - **OpenObserve** for logs, metrics and traces, fed by the OpenTelemetry
   Operator's collectors.
-- **The applications**: the `offby1.cc` landing page and Mautic, from
-  `gitops/apps/`.
+- **The applications**: the `offby1.cc` landing page, Mautic and Payload
+  CMS, from `gitops/apps/`. Every application repo carries the `app`
+  topic.
 
 Every VM carries `prevent_destroy`.
