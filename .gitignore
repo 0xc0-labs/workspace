@@ -7,6 +7,7 @@
 /infrastructure/
 /vault/
 /offby1.cc/
+/payload/
 /app-*/
 
 mise.local.toml
