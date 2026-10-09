@@ -318,7 +318,7 @@ installer, the API) answers 403 there, with no hint of the internal name
 **Payload CMS runs as one multi-tenant instance** (operator decision,
 2026-10-09; workspace#64), the backend of several frontends: one tenant
 per frontend, through Payload's multi-tenant plugin. Its code is the
-`payload` repo. It is public at `payload.0xc0.cc` for the API and media
+`payload` repo, private like `artistlabco.com`. It is public at `payload.0xc0.cc` for the API and media
 the frontends read; `/admin` answers 403 there and is reached only at
 `payload.int.0xc0.cc`, WARP only, as Mautic's admin is. Its media sits on
 a Longhorn RWO volume, so it runs one replica.
