@@ -1,3 +1,8 @@
 [tools]
 jq   = "1.8.2"   # the plugin's hooks (they also need perl, from the OS)
 gh   = "2.101.0" # the plugin board loader (board.sh), bootstrap.sh, the commands
+
+# mise.lock pins every tool here by checksum, and mise checks it on every
+# install. No `locked = true` here, unlike in each repo: the workspace's
+# settings reach every repo under it, and would refuse the tools of one
+# whose own lock is not there yet. After any change above, `mise lock`.
