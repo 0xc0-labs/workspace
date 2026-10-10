@@ -196,6 +196,24 @@ org's hooks. From Anthropic's marketplace, only what applies (workspace#72):
 Nothing that overlaps what is already there: `/simplify`, `/code-review` and
 `/security-review` are built in, and the app repos carry gentle-ai.
 
+Plugins keep themselves current (workspace#80):
+
+- **Every repo's `.claude/settings.json` sets `"autoUpdate": true`** beside
+  the `source` of each third-party marketplace it declares (`0xc0-labs`, and
+  `hashicorp` in `infrastructure`): Claude Code then updates their plugins in
+  the background at session start. A third-party marketplace defaults to
+  `false`, and a repo's entry overrides the user's whole, so it goes in each
+  repo. Anthropic's own already defaults to `true`. A session already open
+  takes an update with `/reload-plugins`.
+- **Any change under a plugin's directory bumps its `version` in
+  `plugin.json`**, the only place it lives: a session gets a new copy only
+  when the version changes. `claude-config`'s CI fails a PR that does not
+  (`.github`'s `plugin-version` workflow).
+- **A change to a repo's `.claude/` is committed by the operator.** A
+  session's permission classifier refuses to commit its own Claude Code
+  configuration, as self-modification: the session prepares the change and
+  says so, the operator commits and pushes it.
+
 ## Rules that apply in every repo
 
 - **Every application ships observable**: logs, metrics and traces to
