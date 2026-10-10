@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Opens the Claude Code session of one directory of the workspace in its own
-# Herdr tab, or focuses it when it is already open.
+# Herdr workspace, listed in the sidebar under the session's name, or focuses
+# it when it is already open.
 #
 #   the workspace itself   claude -n orchestrator
 #   a repo                 claude -n <name> "/0xc0:work-issue"
@@ -34,13 +35,11 @@ if [ "$dry" != --dry-run ] && "$herdr" agent get "$name" >/dev/null 2>&1; then
   exec "$herdr" agent focus "$name"
 fi
 
-ws=()
-[ -n "${HERDR_WORKSPACE_ID:-}" ] && ws=(--workspace "$HERDR_WORKSPACE_ID")
 if [ "$dry" = --dry-run ]; then
-  run "$herdr" tab create ${ws[@]+"${ws[@]}"} --cwd "$dir" --label "$name" --focus
-  pane='<new tab root pane>'
+  run "$herdr" workspace create --cwd "$dir" --label "$name" --focus
+  pane='<new workspace root pane>'
 else
-  pane="$("$herdr" tab create ${ws[@]+"${ws[@]}"} --cwd "$dir" --label "$name" --focus |
+  pane="$("$herdr" workspace create --cwd "$dir" --label "$name" --focus |
     python3 -c 'import json, sys; print(json.load(sys.stdin)["result"]["root_pane"]["pane_id"])')"
 fi
 run "$herdr" agent start "$name" --kind claude --pane "$pane" -- "${args[@]}"

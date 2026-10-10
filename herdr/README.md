@@ -1,10 +1,10 @@
 # herdr
 
 The workspace's [Herdr](https://herdr.dev) plugin, `0xc0-workspace`: one key
-opens a repo's Claude Code session in its own tab (`docs/design.md`, How we
-work).
+opens a repo's Claude Code session in its own Herdr workspace, listed in the
+sidebar with its agent's state (`docs/design.md`, How we work).
 
-Pick a repo, and a tab opens in its directory with
+Pick a repo, and a workspace named after it opens in its directory with
 `claude -n <name> "/0xc0:work-issue"`: the session takes that repo's Ready
 issue of highest priority. Pick the workspace, and the orchestrator opens:
 `claude -n orchestrator`. A session already open is focused, not opened twice.

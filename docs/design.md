@@ -477,8 +477,9 @@ of one session in the workspace editing every repo (operator decision,
   It edits the workspace repo (the design, the rules) and the board, and no
   other repo's files.
 - **A repo session**: `claude -n <name>`, in that repo, opened by the operator
-  in a named tab when the repo is in play. It loads that repo's `CLAUDE.md`,
-  plugins and permissions, works only there, and goes up to a draft PR.
+  in its own Herdr workspace when the repo is in play. It loads that repo's
+  `CLAUDE.md`, plugins and permissions, works only there, and goes up to a
+  draft PR.
 
 A session's name is its repo's, as Herdr takes an agent's: dots to dashes, a
 leading dot dropped (`github`, `offby1-cc`, `artistlabco-com`). The same name

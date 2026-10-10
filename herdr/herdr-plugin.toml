@@ -1,5 +1,5 @@
 # The workspace's Herdr plugin: opens a repo's Claude Code session in its own
-# tab (README.md). Linked in place, once per machine:
+# Herdr workspace (README.md). Linked in place, once per machine:
 #   herdr plugin link ~/git/github/0xc0-homelab/workspace/herdr
 id = "0xc0-workspace"
 name = "0xc0-labs workspace"
