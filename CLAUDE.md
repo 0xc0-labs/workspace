@@ -200,11 +200,15 @@ Plugins keep themselves current (workspace#80):
 
 - **Every repo's `.claude/settings.json` sets `"autoUpdate": true`** beside
   the `source` of each third-party marketplace it declares (`0xc0-labs`, and
-  `hashicorp` in `infrastructure`): Claude Code then updates their plugins in
-  the background at session start. A third-party marketplace defaults to
+  `hashicorp` in `infrastructure`). A third-party marketplace defaults to
   `false`, and a repo's entry overrides the user's whole, so it goes in each
-  repo. Anthropic's own already defaults to `true`. A session already open
-  takes an update with `/reload-plugins`.
+  repo. Anthropic's own already defaults to `true`. The update is not at
+  startup: after a session's first message, Claude Code waits a random delay
+  of up to ten minutes, then updates the plugins on disk, and the session shows
+  "Plugin updated: … Run /reload-plugins to apply". Each repo's install updates
+  when a session started in that repo runs it, so the repo's checkout must be
+  on an up-to-date `main`: a merged PR's stale branch may not carry the
+  setting.
 - **Any change under a plugin's directory bumps its `version` in
   `plugin.json`**, the only place it lives: a session gets a new copy only
   when the version changes. `claude-config`'s CI fails a PR that does not
