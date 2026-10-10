@@ -476,9 +476,17 @@ of one session in the workspace editing every repo (operator decision,
   opens the issues, hands each repo its part, and checks what crosses repos.
   It edits the workspace repo (the design, the rules) and the board, and no
   other repo's files.
-- **A repo session**: `claude -n <repo>`, in that repo, opened by the operator
-  in a named tab when the repo is in play. It loads that repo's `CLAUDE.md`,
-  plugins and permissions, works only there, and goes up to a draft PR.
+- **A repo session**: `claude -n <name>`, in that repo, opened by the operator
+  in its own Herdr workspace when the repo is in play. It loads that repo's
+  `CLAUDE.md`, plugins and permissions, works only there, and goes up to a
+  draft PR.
+
+A session's name is its repo's, as Herdr takes an agent's: dots to dashes, a
+leading dot dropped (`github`, `offby1-cc`, `artistlabco-com`). The same name
+goes to Herdr and to `claude -n`, and it is how the orchestrator addresses a
+session. The operator works in Herdr: the workspace's own Herdr plugin
+(`herdr/`, workspace#76) opens or focuses any repo's session, or the
+orchestrator, from one key.
 
 They talk through Claude Code's messages between local sessions. When a
 repo's session is not open, the orchestrator asks the operator to open it;
@@ -490,7 +498,7 @@ filed). An issue turns **Ready** only with a complete contract and with what
 it depends on applied: GitHub's "blocked by" orders the sub-issues of a change
 across repos, and the orchestrator, or the operator, moves an issue to Ready
 once its blockers are closed. Todo holds the rest. A repo session opened as
-`claude -n <repo> "/work-issue"` takes its repo's Ready issue of highest
+`claude -n <name> "/0xc0:work-issue"` takes its repo's Ready issue of highest
 priority and moves it to In Progress, which is the claim; when it finishes
 one, it looks for the next before it stops. A session acts only on a turn, so
 one with nothing Ready waits, and the orchestrator, when it moves an issue to

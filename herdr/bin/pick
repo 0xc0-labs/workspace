@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# The picker popup: lists the workspace and every repo cloned in it, and opens
+# the session of the one picked. Plain bash 3, so a stock macOS runs it.
+set -euo pipefail
+here="$(cd "$(dirname "$0")" && pwd)"
+root="$(cd "$here/../.." && pwd)"
+
+dirs=("$root")
+labels=("workspace (orchestrator)")
+for d in "$root"/.github "$root"/*/; do
+  d="${d%/}"
+  [ -d "$d/.git" ] || continue
+  dirs+=("$d")
+  labels+=("$(basename "$d")")
+done
+
+echo "Open a session. A number, or Enter to close."
+echo
+i=1
+for l in "${labels[@]}"; do
+  printf '  %2d  %s\n' "$i" "$l"
+  i=$((i + 1))
+done
+echo
+read -r -p "> " choice || exit 0
+case "$choice" in
+  ''|*[!0-9]*) exit 0 ;;
+esac
+[ "$choice" -ge 1 ] && [ "$choice" -le "${#dirs[@]}" ] || exit 0
+exec "$here/open-session" "${dirs[$((choice - 1))]}"
