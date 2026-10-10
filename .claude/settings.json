@@ -41,7 +41,8 @@
       "source": {
         "source": "github",
         "repo": "0xc0-labs/claude-config"
-      }
+      },
+      "autoUpdate": true
     },
     "claude-plugins-official": {
       "source": {
