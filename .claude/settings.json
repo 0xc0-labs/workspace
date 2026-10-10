@@ -33,13 +33,20 @@
     ]
   },
   "enabledPlugins": {
-    "0xc0@0xc0-labs": true
+    "0xc0@0xc0-labs": true,
+    "claude-md-management@claude-plugins-official": true
   },
   "extraKnownMarketplaces": {
     "0xc0-labs": {
       "source": {
         "source": "github",
         "repo": "0xc0-labs/claude-config"
+      }
+    },
+    "claude-plugins-official": {
+      "source": {
+        "source": "github",
+        "repo": "anthropics/claude-plugins-official"
       }
     }
   }

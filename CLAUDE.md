@@ -138,7 +138,29 @@ declared in the repo's `mise.toml` with a pinned version, and that is the fix.
   so it cannot lean on a parent config.
 - Versions are pinned exactly. No `latest`, no version ranges.
 - Bumping a version is its own commit: `chore(mise): bump opentofu to X.Y.Z`.
+- Every repo commits a `mise.lock` (workspace#70): each tool's URL and
+  checksum for `linux-x64` and `macos-arm64`, and its npm integrity under
+  `.mise/locks/` for an `npm:` tool. `[settings] locked = true` in each repo
+  refuses anything the lock does not cover; after any change to `[tools]`,
+  `mise lock`. The workspace locks its own tools but sets no `locked`: its
+  settings reach every repo under it.
 - `mise.local.toml` is for personal overrides and is never committed.
+
+## Claude Code plugins
+
+Each repo enables in its own `.claude/settings.json` the plugins a session
+started there needs: the workspace's settings do not reach a session started
+inside a repo. Every repo enables `0xc0`, or its sessions run without the
+org's hooks. From Anthropic's marketplace, only what applies (workspace#72):
+
+| Plugin | Where |
+|---|---|
+| `claude-md-management` | the workspace |
+| `typescript-lsp` | the TypeScript repos; `typescript-language-server` and `typescript` pinned in their `mise.toml` |
+| `frontend-design` | the frontends |
+
+Nothing that overlaps what is already there: `/simplify`, `/code-review` and
+`/security-review` are built in, and the app repos carry gentle-ai.
 
 ## Rules that apply in every repo
 
