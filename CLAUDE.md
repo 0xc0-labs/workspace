@@ -13,7 +13,7 @@ it too.
 | Directory        | Repo              | Contents                                        |
 |------------------|-------------------|-------------------------------------------------|
 | `.github/`       | `.github`         | org Terraform + reusable workflows              |
-| `claude-config/` | `claude-config`   | marketplace and `0xc0` plugin (agents, hooks, skills) |
+| `claude-config/` | `claude-config`   | marketplace and `0xc0` plugin (hooks, skills)   |
 | `infrastructure/`| `infrastructure`  | Packer + OpenTofu + Ansible + docs              |
 | `gitops/`        | `gitops`          | ArgoCD manifests: `bootstrap/prod/`, `platform/`, `apps/` |
 | `vault/`         | `vault`           | OpenTofu configuration of the cluster's Vault   |

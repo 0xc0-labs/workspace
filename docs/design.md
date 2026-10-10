@@ -524,10 +524,13 @@ PR on its own was green.
 **Plugins and permissions by kind of repo.** Every repo enables `0xc0` in its
 own `.claude/settings.json`. The infrastructure repos (`.github`,
 `infrastructure`, `gitops`, `vault`, `claude-config`) work with `0xc0`'s
-agents and skills, with strict permissions. The application repos add
+hooks and skills, with strict permissions. The application repos add
 gentle-ai at workspace scope and the official plugins they need, and an
 unattended session there may work up to a draft PR (operator decision,
-2026-10-10).
+2026-10-10). The plugin carries no agents (operator decision, 2026-10-11;
+workspace#78): each repo's session builds and checks its own changes, and
+what a reviewer checked lives in that repo's docs (`infrastructure`'s
+`docs/zones.md`, Invariants; `gitops`' `CLAUDE.md`, Before opening a PR).
 
 **What stays the operator's**: marking a PR ready, merging, every apply,
 writing and rotating secrets, and which repos' sessions are open.
