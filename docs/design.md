@@ -463,3 +463,55 @@ approval. Applications: each decides whether it has a test environment; one
 that does promotes test→prod with the same digest, never a rebuild.
 ArgoCD points at `gitops/bootstrap/prod/`, which deploys `platform/` and
 `apps/`.
+
+## How we work
+
+One orchestrator session in the workspace and one session per repo, instead
+of one session in the workspace editing every repo (operator decision,
+2026-10-10; workspace#74).
+
+**Two roles.**
+
+- **The orchestrator**: `claude -n orchestrator`, in the workspace. It plans,
+  opens the issues, hands each repo its part, and checks what crosses repos.
+  It edits the workspace repo (the design, the rules) and the board, and no
+  other repo's files.
+- **A repo session**: `claude -n <repo>`, in that repo, opened by the operator
+  in a named tab when the repo is in play. It loads that repo's `CLAUDE.md`,
+  plugins and permissions, works only there, and goes up to a draft PR.
+
+They talk through Claude Code's messages between local sessions. When a
+repo's session is not open, the orchestrator asks the operator to open it;
+it does not start one on its own.
+
+**The issue is the contract.** A repo session starts with no memory of the
+conversation behind its task, so everything it needs is in its issue: the
+outcome, the acceptance criteria, the branch name, the sibling issues and the
+merge order. The orchestrator's message points at the issue and adds nothing
+the issue lacks. The repo session answers with a short report: the PR, its
+checks, what it could not do, and any question for the operator.
+
+**The orchestrator owns integration.** A green PR in every repo is not a
+working change. Before a set of PRs is called done, the orchestrator checks
+all of them, their merge order, and what one repo does to another: a policy
+another repo's plan needs, a setting a repo inherits from the workspace, a
+hook a session lacks. Each of those slipped through on 2026-10-10 while every
+PR on its own was green.
+
+**Plugins and permissions by kind of repo.** Every repo enables `0xc0` in its
+own `.claude/settings.json`. The infrastructure repos (`.github`,
+`infrastructure`, `gitops`, `vault`, `claude-config`) work with `0xc0`'s
+agents and skills, with strict permissions. The application repos add
+gentle-ai at workspace scope and the official plugins they need, and an
+unattended session there may work up to a draft PR (operator decision,
+2026-10-10).
+
+**What stays the operator's**: marking a PR ready, merging, every apply,
+writing and rotating secrets, and which repos' sessions are open.
+
+**Cost.** Every session draws on the operator's Claude subscription, and
+several at work spend it faster than one. No `ANTHROPIC_API_KEY` in the
+environment and no `--bare`, either of which bills the API instead.
+
+Before anything depends on it, it runs as a pilot on one real change that
+crosses repos.

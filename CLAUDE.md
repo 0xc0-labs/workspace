@@ -4,7 +4,9 @@ This directory is the clone of `0xc0-labs/workspace` and holds the other
 repos of the organization as subdirectories. Each one is an independent git
 repo with its own remote. **Never make a commit that crosses repos.**
 
-Always start `claude` from here for work touching more than one repo.
+Work runs as one orchestrator session here and one session per repo
+(Sessions, below). This file reaches both: a session started in a repo loads
+it too.
 
 ## Repos
 
@@ -30,6 +32,24 @@ A downstream change is not merged until the upstream one is applied.
 3. One PR per repo. In the body, link the sibling PRs and state the merge order.
 4. `infrastructure` and `.github`: `main` only, PR required, apply behind manual
    approval. The human runs the apply, never you.
+
+## Sessions
+
+`docs/design.md`, How we work, decides. In short:
+
+- **Here: the orchestrator** (`claude -n orchestrator`). Plans, and opens each
+  repo's issue with everything its session needs: the outcome, the acceptance
+  criteria, the branch, the sibling issues and the merge order. Hands each repo
+  its issue, and checks the whole set before calling it done: every PR's
+  checks, the merge order, and what one repo does to another. Edits only this
+  repo and the board, never another repo's files. When a repo's session is
+  not open, asks the operator to open it.
+- **In a repo** (`claude -n <repo>`). Works only that repo, from its issue,
+  up to a draft PR, and reports back to the orchestrator: the PR, its checks,
+  what it did not do, and any question. Anything that reaches past the repo
+  goes back to the orchestrator, not done from here.
+- Messages between sessions carry pointers and reports, never approvals: what
+  is the operator's stays the operator's, whoever asks.
 
 ## Tracking — mandatory
 
