@@ -70,11 +70,13 @@ How an issue is written and filed, so the board filters without labels:
 
 | What | Where |
 |---|---|
-| Kind of work | The title is a Conventional Commit subject, the same as the PR title that closes it: `feat(payload): …`. The org's issue type follows it: `feat` is Feature, `fix` is Bug, anything else Task. |
-| Repo | The board's `Repository` field: `repo:0xc0-labs/artistlabco.com` is that site's work. |
+| Title | What must be true, or the problem, in a plain sentence: "Runners register without the App key on disk", "Every vault PR's plan fails with a 403". No type prefix and no repo: both are fields. The PR that closes it carries the Conventional Commit, written for the change it makes, and its branch follows from that (operator decision, 2026-10-10). |
+| Kind of work | The org's issue type: Feature, Bug or Task. |
+| Repo | The board's `Repository` field: `repo:0xc0-labs/artistlabco.com` is that site's work. Keep the column visible in table views: sibling sub-issues can read alike. |
 | Order | `Priority`: P1 now, P2 next, P3 some day. |
 | State | `Status`: Todo (written down, maybe incomplete or waiting), **Ready** (a complete contract, and what it depends on is applied: a repo session may take it), In Progress (taken: moving it here is the claim), Blocked, Done. |
-| A change across repos | A parent issue in the workspace with the outcome, and one sub-issue per repo. Their order is GitHub's "blocked by" between sub-issues: one turns Ready only once what blocks it is closed. |
+| A change across repos | A parent issue in the workspace with the outcome, and one sub-issue per repo, each closed by its own repo's PR. Their order is GitHub's "blocked by" between sub-issues: one turns Ready only once what blocks it is closed. |
+| Anything else related | GitHub's "relates to": a follow-up and the issue it came from, a fix and the change that caused it, the design behind an implementation. |
 
 A request that arrives mid-conversation gets its issue first. The board is
 loaded into every Claude Code session by the plugin's `SessionStart` hook;
