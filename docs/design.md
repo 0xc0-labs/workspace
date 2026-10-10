@@ -484,6 +484,21 @@ They talk through Claude Code's messages between local sessions. When a
 repo's session is not open, the orchestrator asks the operator to open it;
 it does not start one on its own.
 
+**Repo sessions take their own work from the board.** One board for every
+repo, `artistlabco.com` included (`CLAUDE.md`, Tracking, has how an issue is
+filed). An issue turns **Ready** only with a complete contract and with what
+it depends on applied: GitHub's "blocked by" orders the sub-issues of a change
+across repos, and the orchestrator, or the operator, moves an issue to Ready
+once its blockers are closed. Todo holds the rest. A repo session opened as
+`claude -n <repo> "/work-issue"` takes its repo's Ready issue of highest
+priority and moves it to In Progress, which is the claim; when it finishes
+one, it looks for the next before it stops. A session acts only on a turn, so
+one with nothing Ready waits, and the orchestrator, when it moves an issue to
+Ready, messages that repo's session to look again. No session polls the board
+on a timer: every look is a turn of the model, paid whether or not anything
+is there. An issue set Ready by hand, past the orchestrator, is seen at the
+session's next look.
+
 **The issue is the contract.** A repo session starts with no memory of the
 conversation behind its task, so everything it needs is in its issue: the
 outcome, the acceptance criteria, the branch name, the sibling issues and the
