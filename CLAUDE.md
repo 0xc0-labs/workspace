@@ -44,12 +44,18 @@ A downstream change is not merged until the upstream one is applied.
   checks, the merge order, and what one repo does to another. Edits only this
   repo and the board, never another repo's files. When a repo's session is
   not open, asks the operator to open it.
-- **In a repo** (`claude -n <repo>`). Works only that repo, from its issue,
+- **In a repo** (`claude -n <name>`). Works only that repo, from its issue,
   up to a draft PR, and reports back to the orchestrator: the PR, its checks,
   what it did not do, and any question. Anything that reaches past the repo
   goes back to the orchestrator, not done from here.
 - Messages between sessions carry pointers and reports, never approvals: what
   is the operator's stays the operator's, whoever asks.
+- **Names**: a session is named after its repo, as Herdr takes an agent's:
+  dots to dashes, a leading dot dropped (`github`, `offby1-cc`,
+  `artistlabco-com`); the workspace's is `orchestrator`. The orchestrator
+  addresses a session by that name.
+- **Opening one**: in Herdr, the workspace's plugin (`herdr/README.md`) opens
+  or focuses a repo's session, or the orchestrator, from one key.
 
 ## Tracking — mandatory
 

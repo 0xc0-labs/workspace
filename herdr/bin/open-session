@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# Opens the Claude Code session of one directory of the workspace in its own
+# Herdr tab, or focuses it when it is already open.
+#
+#   the workspace itself   claude -n orchestrator
+#   a repo                 claude -n <name> "/0xc0:work-issue"
+#
+# <name> is the repo's, as Herdr takes an agent's (`[a-z][a-z0-9_-]`): dots to
+# dashes, a leading dot dropped. `.github` is `github`, `offby1.cc`
+# `offby1-cc`. The same name goes to Herdr and to `claude -n`, so the
+# orchestrator finds a session by it.
+#
+# Usage: open-session <dir> [--dry-run]
+set -euo pipefail
+herdr="${HERDR_BIN_PATH:-herdr}"
+root="$(cd "$(dirname "$0")/../.." && pwd)"
+dir="$(cd "${1:?usage: open-session <dir> [--dry-run]}" && pwd)"
+dry="${2:-}"
+
+if [ "$dir" = "$root" ]; then
+  name=orchestrator
+  args=(-n "$name")
+else
+  name="$(basename "$dir" | tr 'A-Z.' 'a-z-' | sed 's/^-*//')"
+  args=(-n "$name" "/0xc0:work-issue")
+fi
+[[ "$name" =~ ^[a-z][a-z0-9_-]{0,31}$ ]] || { echo "open-session: '$name' is not a name Herdr takes" >&2; exit 1; }
+
+run() {  # run <cmd...>: prints it on a dry run, runs it otherwise
+  if [ "$dry" = --dry-run ]; then printf '%q ' "$@"; echo; else "$@"; fi
+}
+
+if [ "$dry" != --dry-run ] && "$herdr" agent get "$name" >/dev/null 2>&1; then
+  exec "$herdr" agent focus "$name"
+fi
+
+ws=()
+[ -n "${HERDR_WORKSPACE_ID:-}" ] && ws=(--workspace "$HERDR_WORKSPACE_ID")
+if [ "$dry" = --dry-run ]; then
+  run "$herdr" tab create ${ws[@]+"${ws[@]}"} --cwd "$dir" --label "$name" --focus
+  pane='<new tab root pane>'
+else
+  pane="$("$herdr" tab create ${ws[@]+"${ws[@]}"} --cwd "$dir" --label "$name" --focus |
+    python3 -c 'import json, sys; print(json.load(sys.stdin)["result"]["root_pane"]["pane_id"])')"
+fi
+run "$herdr" agent start "$name" --kind claude --pane "$pane" -- "${args[@]}"
