@@ -4,7 +4,9 @@ This directory is the clone of `0xc0-labs/workspace` and holds the other
 repos of the organization as subdirectories. Each one is an independent git
 repo with its own remote. **Never make a commit that crosses repos.**
 
-Always start `claude` from here for work touching more than one repo.
+Work runs as one orchestrator session here and one session per repo
+(Sessions, below). This file reaches both: a session started in a repo loads
+it too.
 
 ## Repos
 
@@ -31,16 +33,30 @@ A downstream change is not merged until the upstream one is applied.
 4. `infrastructure` and `.github`: `main` only, PR required, apply behind manual
    approval. The human runs the apply, never you.
 
+## Sessions
+
+`docs/design.md`, How we work, decides. In short:
+
+- **Here: the orchestrator** (`claude -n orchestrator`). Plans, and opens each
+  repo's issue with everything its session needs: the outcome, the acceptance
+  criteria, the branch, the sibling issues and the merge order. Hands each repo
+  its issue, and checks the whole set before calling it done: every PR's
+  checks, the merge order, and what one repo does to another. Edits only this
+  repo and the board, never another repo's files. When a repo's session is
+  not open, asks the operator to open it.
+- **In a repo** (`claude -n <repo>`). Works only that repo, from its issue,
+  up to a draft PR, and reports back to the orchestrator: the PR, its checks,
+  what it did not do, and any question. Anything that reaches past the repo
+  goes back to the orchestrator, not done from here.
+- Messages between sessions carry pointers and reports, never approvals: what
+  is the operator's stays the operator's, whoever asks.
+
 ## Tracking — mandatory
 
-The org project board (`github.com/orgs/0xc0-labs/projects/1`) is the source
-of truth for the state of work. **No work starts without an issue on it.**
-
-One exception: the artistlabco.com website (private repo `artistlabco.com`)
-is tracked on its own project, `github.com/orgs/0xc0-labs/projects/3`, linked
-to that repo; that project holds this website's work and nothing else. What it
-needs from the platform (Cloudflare, gitops, Vault) goes on the board as
-usual (operator decision, 2026-10-04).
+The org project board, `0xc0-labs` (`github.com/orgs/0xc0-labs/projects/1`),
+is the source of truth for the state of work, every repo's, `artistlabco.com`
+included (operator decision, 2026-10-10: its own project, #3, is closed). It
+is private. **No work starts without an issue on it.**
 
 1. Before editing anything, find the issue for the task, or open one in the
    repo it belongs to and add it to the board.
@@ -49,6 +65,18 @@ usual (operator decision, 2026-10-04).
 3. Every PR body links it: `Closes #N`, or `Refs owner/repo#N` from a sibling
    repo. A PR without a linked issue fails the `issue` check.
 4. It closes through the PR that finishes it, not by hand.
+
+How an issue is written and filed, so the board filters without labels:
+
+| What | Where |
+|---|---|
+| Title | What must be true, or the problem, in a plain sentence: "Runners register without the App key on disk", "Every vault PR's plan fails with a 403". No type prefix and no repo: both are fields. The PR that closes it carries the Conventional Commit, written for the change it makes, and its branch follows from that (operator decision, 2026-10-10). |
+| Kind of work | The org's issue type: Feature, Bug or Task. |
+| Repo | The board's `Repository` field: `repo:0xc0-labs/artistlabco.com` is that site's work. Keep the column visible in table views: sibling sub-issues can read alike. |
+| Order | `Priority`: P1 now, P2 next, P3 some day. |
+| State | `Status`: Todo (written down, maybe incomplete or waiting), **Ready** (a complete contract, and what it depends on is applied: a repo session may take it), In Progress (taken: moving it here is the claim), Blocked, Done. |
+| A change across repos | A parent issue in the workspace with the outcome, and one sub-issue per repo, each closed by its own repo's PR. Their order is GitHub's "blocked by" between sub-issues: one turns Ready only once what blocks it is closed. |
+| Anything else related | GitHub's "relates to": a follow-up and the issue it came from, a fix and the change that caused it, the design behind an implementation. |
 
 A request that arrives mid-conversation gets its issue first. The board is
 loaded into every Claude Code session by the plugin's `SessionStart` hook;
