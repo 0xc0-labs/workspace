@@ -308,8 +308,7 @@ bucket, created by the operator in Cloudflare and kept in
 `apps/<namespace>/`. With no files on disk, a volume no longer ties an
 application to one replica or to stopping before each rollout. R2 is free up
 to 10 GB, with no egress fees, and about 15 USD per TB beyond. It keeps no
-copies of its own: a nightly copy to the Storage Box, with a timed restore,
-is in place before prod holds real files.
+copies of its own, and nothing copies it elsewhere (Accepted risks).
 
 **The applications send email through Resend, over SMTP** (operator
 decision, 2026-10-12; workspace#92): `smtp.resend.com:587` with STARTTLS,
@@ -491,6 +490,10 @@ is gone.
   whoever reads it can read and delete every application's files; a second
   token for R2 alone was turned down (operator decision, 2026-10-11;
   workspace#88).
+- The applications' files in R2 have no copy outside Cloudflare: PBS does
+  not see them, and a nightly copy to the Storage Box was turned down. A
+  deleted bucket or object, by mistake or through the shared Cloudflare
+  token, is lost (operator decision, 2026-10-12; workspace#89).
 - Every secret lives in Vault and nowhere else (operator decision,
   2026-10-01). With the cluster or Vault down, no pipeline runs and no local
   script gets credentials until Vault is restored from PBS and unsealed (the
