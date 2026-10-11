@@ -197,6 +197,8 @@ org's hooks. From Anthropic's marketplace, only what applies (workspace#72):
 
 Nothing that overlaps what is already there: `/simplify`, `/code-review` and
 `/security-review` are built in, and the app repos carry gentle-ai.
+gentle-ai's feature document (`odd/tasks/<feature>.md`) is committed in the
+same PR as its feature, never kept out of git (workspace#98).
 
 Plugins keep themselves current (workspace#80):
 

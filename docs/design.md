@@ -750,6 +750,10 @@ subscription. The plugin carries no agents (operator decision, 2026-10-11;
 workspace#78): each repo's session builds and checks its own changes, and
 what a reviewer checked lives in that repo's docs (`infrastructure`'s
 `docs/zones.md`, Invariants; `gitops`' `CLAUDE.md`, Before opening a PR).
+gentle-ai's feature document, `odd/tasks/<feature>.md`, is versioned with
+its feature, in the same PR (operator decision, 2026-10-12; workspace#98):
+gentle-ai means it to be recoverable, and commits its own; Engram's copy is
+on one laptop.
 
 **What stays the operator's**: marking a PR ready, merging, every apply,
 writing and rotating secrets, and which repos' sessions are open.
