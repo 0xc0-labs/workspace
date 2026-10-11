@@ -549,8 +549,23 @@ and the runners build images with rootless BuildKit, with the provenance and
 SBOM the GitHub-hosted build gives today. A dependency's code runs on the same
 runners that reach Vault, so a dependency version is taken only once it is
 three days old (`minimumReleaseAge`, in Renovate and in pnpm), and pnpm runs
-the build scripts of the packages it is told to (`onlyBuiltDependencies`)
-and no others. Public repos (`offby1.cc`) keep building on GitHub's runners.
+the build scripts of the packages it is told to (`allowBuilds`, which
+replaced `onlyBuiltDependencies` in pnpm 11) and no others. Public repos
+(`offby1.cc`) keep building on GitHub's runners.
+
+**Integration tests bring their own PostgreSQL, from mise** (operator
+decision, 2026-10-12; workspace#93). The runners have no Docker, and nothing
+they run may listen on the network (`infrastructure`'s `docs/zones.md`,
+invariant 10). So an application's tests start a throwaway server themselves:
+PostgreSQL from conda-forge through mise (`conda:postgresql`, prod's major,
+every package checksummed in `mise.lock` for Linux and macOS), `initdb` in a
+temporary directory, no TCP port (`listen_addresses=''`), a Unix socket in
+that directory, the repo's migrations, and everything removed when the tests
+end. The same `pnpm test` runs on a runner and on a Mac. `node-check` only runs
+it, with the tools the caller names. Not Debian's package (trixie ships 17,
+and 18 would bake a third-party repo into the runner image), not PGlite (no
+Payload adapter, and it does not behave as a server under concurrency), not a
+GitHub-hosted job with a service container (Vault and the minutes, above).
 
 **Staging is a second environment of the same application.** In `gitops`,
 an application is one folder with one directory per environment:
