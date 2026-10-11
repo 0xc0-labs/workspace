@@ -158,12 +158,13 @@ playbook (operator decision, 2026-09-29).
 ## Stack
 
 Proxmox VE 9 on a Hetzner dedicated server, 2× NVMe in mdadm RAID 0 ·
-PBS to a Hetzner Storage Box · RustFS for the OpenTofu state · Cloudflare Free
-(Tunnel, Access, WARP) · Packer + OpenTofu + Ansible · GitHub Actions with
-self-hosted runners · RKE2 on Rocky Linux · HAProxy + keepalived · ArgoCD ·
-Traefik with the Gateway API · CrowdSec · cert-manager with Let's Encrypt ·
-external-dns · Longhorn · Headlamp · Vault · OpenObserve with the
-OpenTelemetry Operator · Hetzner Rescue as the emergency path.
+PBS to a Hetzner Storage Box · RustFS for the OpenTofu state · Cloudflare R2
+for the applications' files · Cloudflare Free (Tunnel, Access, WARP) ·
+Packer + OpenTofu + Ansible · GitHub Actions with self-hosted runners · RKE2
+on Rocky Linux · HAProxy + keepalived · ArgoCD · Traefik with the Gateway API
+· CrowdSec · cert-manager with Let's Encrypt · external-dns · Longhorn ·
+Headlamp · Vault · OpenObserve with the OpenTelemetry Operator · Hetzner
+Rescue as the emergency path.
 
 **ArgoCD is installed with the cluster, and everything else in the cluster by
 ArgoCD** (operator decision, 2026-09-29, replacing the OpenTofu root of
@@ -291,6 +292,25 @@ default `StorageClass`, three replicas on different nodes, on each RKE2 node's
 two data disks, the agents' included. It has no backup target of its own: **PBS backs the VMs up whole**,
 data disks included, and that is what the timed restore tests.
 
+**The applications' files live in Cloudflare R2** (operator decision,
+2026-10-11; workspace#88), the one object store for them: uploads and
+anything else an application keeps as objects. Longhorn keeps the databases
+and what needs a filesystem; RustFS keeps only the OpenTofu state. One bucket
+per application and environment, named `<namespace>-<purpose>`
+(`payload-media`, `payload-staging-media`), created by `infrastructure`'s
+Cloudflare root with a western Europe location hint, its `r2.dev` URL off. A
+bucket whose files are public is attached to a hostname of ours
+(`media.0xc0.cc`) and served through Cloudflare's cache, with `nosniff` and a
+`default-src 'none'` CSP, so the application behind it need not be public.
+Staging's buckets have no hostname: the application serves their files, over
+WARP. Each application reads its bucket with an R2 token scoped to that
+bucket, created by the operator in Cloudflare and kept in
+`apps/<namespace>/`. With no files on disk, a volume no longer ties an
+application to one replica or to stopping before each rollout. R2 is free up
+to 10 GB, with no egress fees, and about 15 USD per TB beyond. It keeps no
+copies of its own: a nightly copy to the Storage Box, with a timed restore,
+is in place before prod holds real files.
+
 **Non-negotiable: a tested restore.** If the RTO is not measured in writing,
 it is not tested.
 
@@ -319,10 +339,12 @@ installer, the API) answers 403 there, with no hint of the internal name
 2026-10-09; workspace#64), the backend of several frontends: one tenant
 per frontend, through Payload's multi-tenant plugin. Its code is the
 `payload` repo, private like `artistlabco.com`. The frontends read its API
-inside the cluster, and only the uploaded files are public, at
-`payload.0xc0.cc` (Application delivery, below; workspace#68). The admin is
-reached only at `payload.int.0xc0.cc`, WARP only, as Mautic's admin is. Its
-media sits on a Longhorn RWO volume, so it runs one replica.
+inside the cluster (Application delivery, below; workspace#68), and only the
+uploaded files are public, served from R2 at `media.0xc0.cc`: nothing of
+Payload itself is (workspace#88). The admin is reached only at
+`payload.int.0xc0.cc`, WARP only, as Mautic's admin is. With its media in R2
+it keeps nothing on disk, so a rollout starts the new pod before stopping the
+old one; one replica for now.
 
 **One shared PostgreSQL for the applications that need it** (operator
 decision, 2026-10-09; workspace#64): Payload does not support MySQL or
@@ -413,6 +435,9 @@ is gone.
 | A self-hosted registry (Zot, Distribution), for now | GHCR stores and serves container images free, private ones included; one in the cluster adds TLS, auth, a volume, a containerd mirror on every node, and an outage that stops every reschedule. Reconsidered if GitHub starts billing container storage (operator decision, 2026-10-10) |
 | Mend's hosted Renovate | a third party with write access to the private repos, and the token that reads the private npm package kept at Mend, outside Vault; Renovate runs self-hosted from `.github` (operator decision, 2026-10-11; workspace#68) |
 | A public Payload API | the frontends render on the server and read it inside the cluster; only the uploaded files are public (operator decision, 2026-10-11; workspace#68) |
+| Longhorn RWX volumes for applications' files | an NFS share-manager is one more pod and one more single point, and the application still serves its files itself; R2 instead (operator decision, 2026-10-11; workspace#88) |
+| Hetzner Object Storage, for now | a fixed monthly fee with 1 TB included, its own hostname with Cloudflare in front anyway, and another provider's keys, where R2 is free up to 10 GB with no egress fees. Reconsidered past about 400 GB, where it costs less (operator decision, 2026-10-11; workspace#88) |
+| RustFS or an object store in the cluster, for applications' files | RustFS is run by hand on the node and holds the OpenTofu state; one in the cluster costs memory the cluster does not have to spare (operator decision, 2026-10-11; workspace#88) |
 
 ## Accepted risks
 
@@ -443,7 +468,10 @@ is gone.
   also change the tunnels, Zero Trust and Access: whoever reads its Secret in
   the cluster gets all of that (operator decision, 2026-09-29). One token
   serves both, in Vault (`platform/shared/cloudflare`); a DNS-only one was
-  turned down (operator decision, 2026-09-30).
+  turned down (operator decision, 2026-09-30). It also administers R2, so
+  whoever reads it can read and delete every application's files; a second
+  token for R2 alone was turned down (operator decision, 2026-10-11;
+  workspace#88).
 - Every secret lives in Vault and nowhere else (operator decision,
   2026-10-01). With the cluster or Vault down, no pipeline runs and no local
   script gets credentials until Vault is restored from PBS and unsealed (the
@@ -554,8 +582,8 @@ frontend's own server. Staging's frontend reads staging's Payload, and the
 network policies let each Payload be reached only by the frontends of its
 environment. The build never reads Payload, and nothing that differs between
 environments is baked into the image (no `NEXT_PUBLIC_` value that does), so
-one image serves both. Outside, only the routes that serve uploaded files
-are public at `payload.0xc0.cc`; the API, GraphQL and authentication stay
+one image serves both. Outside, only the uploaded files are public, from R2
+at `media.0xc0.cc` (workspace#88); the API, GraphQL and authentication stay
 inside, and the admin stays at `payload.int.0xc0.cc`.
 
 **Observable as every application is, in both environments.** Stack's rule
