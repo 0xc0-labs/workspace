@@ -159,12 +159,12 @@ playbook (operator decision, 2026-09-29).
 
 Proxmox VE 9 on a Hetzner dedicated server, 2× NVMe in mdadm RAID 0 ·
 PBS to a Hetzner Storage Box · RustFS for the OpenTofu state · Cloudflare R2
-for the applications' files · Cloudflare Free (Tunnel, Access, WARP) ·
-Packer + OpenTofu + Ansible · GitHub Actions with self-hosted runners · RKE2
-on Rocky Linux · HAProxy + keepalived · ArgoCD · Traefik with the Gateway API
-· CrowdSec · cert-manager with Let's Encrypt · external-dns · Longhorn ·
-Headlamp · Vault · OpenObserve with the OpenTelemetry Operator · Hetzner
-Rescue as the emergency path.
+for the applications' files · Resend for their email · Cloudflare Free
+(Tunnel, Access, WARP) · Packer + OpenTofu + Ansible · GitHub Actions with
+self-hosted runners · RKE2 on Rocky Linux · HAProxy + keepalived · ArgoCD ·
+Traefik with the Gateway API · CrowdSec · cert-manager with Let's Encrypt ·
+external-dns · Longhorn · Headlamp · Vault · OpenObserve with the
+OpenTelemetry Operator · Hetzner Rescue as the emergency path.
 
 **ArgoCD is installed with the cluster, and everything else in the cluster by
 ArgoCD** (operator decision, 2026-09-29, replacing the OpenTofu root of
@@ -311,6 +311,22 @@ to 10 GB, with no egress fees, and about 15 USD per TB beyond. It keeps no
 copies of its own: a nightly copy to the Storage Box, with a timed restore,
 is in place before prod holds real files.
 
+**The applications send email through Resend, over SMTP** (operator
+decision, 2026-10-12; workspace#92): `smtp.resend.com:587` with STARTTLS,
+region `eu-west-1`, never a provider's own API or DSN scheme, so moving to
+Amazon SES once the volume asks for it (Mautic's campaigns, or more than the
+free plan's 100 a day) changes credentials and DNS, never code. The
+platform's own mail (Payload's resets and invitations, internal tools) goes
+out from `0xc0.cc`; a site's mail to its public, from that site's domain,
+verified on its own: a site never sends as `0xc0.cc`, nor the platform as a
+site. Each sending domain's DKIM, its MAIL FROM subdomain (`send.`, so the
+apex keeps Cloudflare Email Routing's MX and SPF) and its DMARC record are
+OpenTofu's, in `infrastructure`. Each application and environment sends with
+its own key, sending access only and limited to its domain, created by the
+operator in Resend and kept at `apps/<namespace>/email`. Staging sends real
+mail, all of it to the operator's inbox (`EMAIL_REDIRECT_TO`, from Vault),
+marked as staging's: nothing reaches a test address or a real user.
+
 **Non-negotiable: a tested restore.** If the RTO is not measured in writing,
 it is not tested.
 
@@ -406,9 +422,9 @@ is gone.
   `platform/shared/cloudflare`, rotated together.
 - **Outside Vault:** what restoring Vault takes cannot live in it. The unseal
   keys and root token, PBS and its Storage Box, Hetzner Robot and Rescue,
-  Proxmox `root@pam`, RustFS admin, and the Cloudflare and GitHub accounts
-  with their 2FA are kept in the operator's password manager and an offline
-  copy (`vault` README, "Recovery credentials: outside Vault").
+  Proxmox `root@pam`, RustFS admin, and the Cloudflare, GitHub and Resend
+  accounts with their 2FA are kept in the operator's password manager and an
+  offline copy (`vault` README, "Recovery credentials: outside Vault").
 
 ## Discarded — do not propose
 
@@ -436,6 +452,7 @@ is gone.
 | Mend's hosted Renovate | a third party with write access to the private repos, and the token that reads the private npm package kept at Mend, outside Vault; Renovate runs self-hosted from `.github` (operator decision, 2026-10-11; workspace#68) |
 | A public Payload API | the frontends render on the server and read it inside the cluster; only the uploaded files are public (operator decision, 2026-10-11; workspace#68) |
 | Vault paths per application and environment (`apps/<app>/<env>/`) | the `apps` policy reads `apps/<namespace>/*` by the pod's namespace, and each environment is its own namespace (`<app>`, `<app>-staging`), so one policy covers every application and environment; a path per application and environment needs a policy per application (operator decision, 2026-10-11; workspace#87) |
+| Amazon SES, for now | an AWS account, its sandbox, IAM and a bounce-handling circuit are not worth it with no volume; Resend over SMTP instead, so the move is credentials and DNS. Reconsidered when Mautic sends campaigns or the volume outgrows Resend's free plan (operator decision, 2026-10-12; workspace#92) |
 | semantic-release | it releases on every push to a branch, the branch's last commit; a release here promotes the rc staging runs, an earlier commit if main moved on. git-cliff computes the version, one pinned binary where semantic-release is Node and plugins on runners that reach Vault (operator decision, 2026-10-11; workspace#87) |
 | Longhorn RWX volumes for applications' files | an NFS share-manager is one more pod and one more single point, and the application still serves its files itself; R2 instead (operator decision, 2026-10-11; workspace#88) |
 | Hetzner Object Storage, for now | a fixed monthly fee with 1 TB included, its own hostname with Cloudflare in front anyway, and another provider's keys, where R2 is free up to 10 GB with no egress fees. Reconsidered past about 400 GB, where it costs less (operator decision, 2026-10-11; workspace#88) |
