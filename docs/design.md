@@ -423,8 +423,8 @@ is gone.
 - **Outside Vault:** what restoring Vault takes cannot live in it. The unseal
   keys and root token, PBS and its Storage Box, Hetzner Robot and Rescue,
   Proxmox `root@pam`, RustFS admin, and the Cloudflare, GitHub and Resend
-  accounts with their 2FA are kept in the operator's password manager and an offline
-  copy (`vault` README, "Recovery credentials: outside Vault").
+  accounts with their 2FA are kept in the operator's password manager and an
+  offline copy (`vault` README, "Recovery credentials: outside Vault").
 
 ## Discarded — do not propose
 
