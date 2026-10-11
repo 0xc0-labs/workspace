@@ -1,0 +1,22 @@
+# The workspace's Herdr plugin: opens a repo's Claude Code session in its own
+# Herdr workspace (README.md). Linked in place, once per machine:
+#   herdr plugin link ~/git/github/0xc0-homelab/workspace/herdr
+id = "0xc0-workspace"
+name = "0xc0-labs workspace"
+version = "0.1.0"
+min_herdr_version = "0.9.3"
+platforms = ["macos", "linux"]
+
+[[actions]]
+id = "open-session"
+title = "Open a repo session"
+contexts = ["workspace"]
+command = ["bin/open-picker"]
+
+[[panes]]
+id = "pick"
+title = "Open a repo session"
+placement = "popup"
+width = "50%"
+height = 22
+command = ["bin/pick"]

@@ -318,10 +318,11 @@ installer, the API) answers 403 there, with no hint of the internal name
 **Payload CMS runs as one multi-tenant instance** (operator decision,
 2026-10-09; workspace#64), the backend of several frontends: one tenant
 per frontend, through Payload's multi-tenant plugin. Its code is the
-`payload` repo, private like `artistlabco.com`. It is public at `payload.0xc0.cc` for the API and media
-the frontends read; `/admin` answers 403 there and is reached only at
-`payload.int.0xc0.cc`, WARP only, as Mautic's admin is. Its media sits on
-a Longhorn RWO volume, so it runs one replica.
+`payload` repo, private like `artistlabco.com`. The frontends read its API
+inside the cluster, and only the uploaded files are public, at
+`payload.0xc0.cc` (Application delivery, below; workspace#68). The admin is
+reached only at `payload.int.0xc0.cc`, WARP only, as Mautic's admin is. Its
+media sits on a Longhorn RWO volume, so it runs one replica.
 
 **One shared PostgreSQL for the applications that need it** (operator
 decision, 2026-10-09; workspace#64): Payload does not support MySQL or
@@ -410,6 +411,8 @@ is gone.
 | Flux                | operator decision (2026-09-22): GitOps is ArgoCD     |
 | One ordered pipeline for the cluster's deployment | the three steps stay apart: OpenTofu creates the VMs, Ansible configures them and installs ArgoCD, ArgoCD syncs gitops (operator decision, 2026-09-30, infrastructure#112) |
 | A self-hosted registry (Zot, Distribution), for now | GHCR stores and serves container images free, private ones included; one in the cluster adds TLS, auth, a volume, a containerd mirror on every node, and an outage that stops every reschedule. Reconsidered if GitHub starts billing container storage (operator decision, 2026-10-10) |
+| Mend's hosted Renovate | a third party with write access to the private repos, and the token that reads the private npm package kept at Mend, outside Vault; Renovate runs self-hosted from `.github` (operator decision, 2026-10-11; workspace#68) |
+| A public Payload API | the frontends render on the server and read it inside the cluster; only the uploaded files are public (operator decision, 2026-10-11; workspace#68) |
 
 ## Accepted risks
 
@@ -469,53 +472,105 @@ ArgoCD points at `gitops/bootstrap/prod/`, which deploys `platform/` and
 ## Application delivery
 
 How an application's code goes from a commit to staging and prod, and how a
-frontend and the backend it reads stay in step (operator decision,
-2026-10-10; workspace#68). It applies to `payload` and `artistlabco.com`
-first; another application adopts it when it gets a staging environment.
+frontend and the backend it reads stay in step (operator decisions,
+2026-10-10 and 2026-10-11; workspace#68). It applies to `payload` and
+`artistlabco.com` first; another application adopts it when it gets a
+staging environment.
 
 **Trunk-based, versioned from Conventional Commits.** `main` is the trunk:
-short-lived branches, squash merges. Every commit on `main` builds an image,
-`sha-<7>`, and deploys nothing. A release candidate is a tag,
-`vX.Y.Z-rc.N`, on a commit of `main`; `git-cliff` computes its version from
-the Conventional Commits since the last release (`feat` minor, `fix` patch,
-`!` major). A release, `vX.Y.Z`, is a GitHub Release on the same commit as an
-rc that passed staging. There are no release branches: a hotfix is a fix on
-`main`, a new rc and a release.
+short-lived branches, squash merges, no release branches. Every merge to
+`main` builds an image, `sha-<7>`, and cuts the next release candidate,
+`vX.Y.Z-rc.N`, a tag on that commit whose version `git-cliff` computes from
+the Conventional Commits since the last release (`feat` a minor, `fix` a
+patch, `!` a major). Every rc goes to staging. A release, `vX.Y.Z`, is a
+`workflow_dispatch` that the operator or the orchestrator runs: it takes the
+rc that staging runs, read from `gitops`, and makes it a GitHub Release on
+the same commit, with its changelog. A hotfix is a fix on `main`, its rc and
+a release. Versions start at `0.1.0`; while in 0.x a breaking change bumps
+the minor, which npm's caret already treats as breaking. `1.0.0` is cut by
+hand when the first frontend reaches prod.
 
-**Promotion is a PR in `gitops`, and the image is never rebuilt.** An rc
-tags the commit's image with its version and opens a PR in `gitops` that
-pins the digest in `apps/<app>/staging`; it merges by itself once its checks
-pass. A release tags the same digest `vX.Y.Z` and opens the PR for
-`apps/<app>/prod`, which the operator merges: that merge is prod's approval.
-The approval lives in `gitops` because GitHub Free gives private repositories
-no environment reviewers, wait timers, environment secrets or rulesets. The
-token that opens these PRs is a GitHub App's, read from Vault through the
-repo's JWT role (.github#61). Vault is reachable only from inside, so the
-private application repos run their whole CI on the self-hosted runners,
-which also spares the GitHub-hosted minutes private repos pay for.
+**Promotion is a PR in `gitops`, and the image is never rebuilt.** An rc and
+a release each tag the same digest with their version, and open a PR in
+`gitops` that changes only the `images:` entry, tag and digest, of the
+environment's `kustomization.yaml`. Staging's PR is set to merge itself once
+its checks pass. Prod's is the operator's merge, and that merge is prod's
+approval: GitHub Free gives private repositories no environment reviewers,
+wait timers, environment secrets or rulesets. Rolling back is reverting that
+PR.
 
-**Staging.** An application with staging has `apps/<app>/base`, `staging/`
-and `prod/` in `gitops`. Prod keeps the application's namespace and ArgoCD
-name; staging runs as `<app>-staging`, with its own database on the shared
+**Two GitHub Apps open the bots' PRs, and their keys never leave Vault.**
+`0xc0-labs-promoter` is installed on `gitops` alone, with contents and pull
+requests; `0xc0-labs-renovate`, on every repo. Their private keys are
+imported into Transit (`github-promoter-app`, `github-renovate-app`), as the
+runners' is: a job signs its App's JWT through Transit with its repo's JWT
+role, and exchanges it for an installation token narrowed to the repo and
+the permissions it needs. Two Apps rather than one, so that an
+application's CI can mint write access to `gitops` and nothing else. The
+`issue` check lets a PR through without a linked issue when one of the two
+Apps opened it: it names the release or the dependency it moves, and the
+board tracks the work of people and sessions.
+
+**The private applications run their whole CI on the self-hosted runners.**
+Vault, and with it the Apps' tokens, is reachable only from inside; running
+there also spares the GitHub-hosted minutes private repositories pay for.
+The runner group admits these repos and the reusable workflows they call,
+and the runners build images with rootless BuildKit, with the provenance and
+SBOM the GitHub-hosted build gives today. A dependency's code runs on the same
+runners that reach Vault, so a dependency version is taken only once it is
+three days old (`minimumReleaseAge`, in Renovate and in pnpm), and pnpm runs
+the build scripts of the packages it is told to (`onlyBuiltDependencies`)
+and no others. Public repos (`offby1.cc`) keep building on GitHub's runners.
+
+**Staging is a second environment of the same application.** In `gitops`,
+an application is one folder with one directory per environment:
+`apps/<app>/prod/` and, when it has staging, `apps/<app>/staging/`, with
+what both share in `apps/<app>/base/`. An application with one environment
+keeps all of it in `prod/`; when it gains staging, the shared part moves to
+`base/`. The `apps` ApplicationSet makes an Argo CD application of each
+environment: prod keeps the application's name and namespace, `<app>`;
+staging is `<app>-staging`. Staging has its own database on the shared
 server, its own volumes, and its own `apps/<app>-staging/` path in Vault,
-which the `apps` role already covers. Staging is reached over WARP only, at
-`<app>-staging.int.0xc0.cc`. Applications without staging (`offby1.cc`,
-Mautic) stay as they are. Each staging environment doubles its application's
-memory in the cluster.
+which the `apps` role already covers. It is reached over WARP only, at
+`<app>-staging.int.0xc0.cc`, and is observed as prod is, its signals tagged
+`deployment.environment=staging`. Its data is a seed versioned in `payload`:
+tenants, test users and sample content, reset when needed; later, once prod
+has content, a copy of prod without its users collection, run by the
+operator. Applications without staging (`offby1.cc`, Mautic) move to
+`prod/` and stay as they are. Each staging environment doubles its
+application's memory in the cluster.
+
+**Migrations run before the new version, from the same image.** An Argo CD
+PreSync Job runs `payload migrate` with the digest being deployed: when it
+fails, the sync stops there and the running version keeps serving. Every
+migration is expand and contract, so the previous version works on the new
+schema and rolling back the image is safe.
+
+**The frontends render on the server.** A frontend is a Next.js application
+in the cluster that reads Payload through its internal Service, with a
+read-only API key of its tenant, kept in Vault: the browser never calls the
+API, and what a page needs from it, a form or a search, goes through the
+frontend's own server. Staging's frontend reads staging's Payload, and the
+network policies let each Payload be reached only by the frontends of its
+environment. The build never reads Payload, and nothing that differs between
+environments is baked into the image (no `NEXT_PUBLIC_` value that does), so
+one image serves both. Outside, only the routes that serve uploaded files
+are public at `payload.0xc0.cc`; the API, GraphQL and authentication stay
+inside, and the admin stays at `payload.int.0xc0.cc`.
 
 **Images of private repositories stay private.** The cluster pulls them from
-GHCR with a read-only token in Vault, which Vault Secrets Operator turns into
-an `imagePullSecret` in each namespace that needs one. Images of public repos
-stay public, as today.
+GHCR with a read-only token at `apps/shared/ghcr-pull` in Vault, which Vault
+Secrets Operator turns into an `imagePullSecret` in each namespace that
+needs one. Images of public repos stay public, as today.
 
 **The backend publishes a versioned contract.** `payload` publishes its
 generated types as `@0xc0-labs/payload-types`, a private npm package in
-GitHub Packages, with the version of the release that built it: an rc
+GitHub Packages, with the version of the rc or release that built it: an rc
 publishes `X.Y.Z-rc.N` under the `rc` dist-tag, a release `X.Y.Z`. A
 frontend pins it in its `package.json`, so a breaking change in the backend
 fails the frontend's build, never its users. The backend changes by expand
 and contract: it adds (a minor) and deploys, the frontends adopt, and it
-removes (a major) only once no deployed frontend uses what goes.
+removes (a breaking release) only once no deployed frontend uses what goes.
 
 **CI enforces the order between repos:**
 
@@ -524,19 +579,101 @@ removes (a major) only once no deployed frontend uses what goes.
 2. Promoting a frontend to an environment fails unless that environment
    already runs a backend version at least as high as the one the frontend
    depends on, read from `gitops`.
-3. Later: a major of the backend does not reach prod while a frontend in prod
-   still depends on the previous major.
+3. Later: a breaking release of the backend does not reach prod while a
+   frontend in prod still depends on the previous one.
 
-**Development sessions.** Each application repo carries gentle-ai at
-workspace scope (`.claude/`, `.mcp.json`, and its tools pinned in
-`mise.toml`), with a permission list that lets an unattended session work up
-to a draft PR and denies merging, marking ready, and anything that applies
-infrastructure. An orchestrator session in the workspace drives a change
-across repos: it messages a named Claude Code session open in each repo
-(`claude -n <repo>`), or starts one in the background (`claude --bg`), and
-hands it the task, the issue, the branch and the contract version. It keeps
-no state of its own: each run reads the issues, PRs, tags and `gitops` pins
-and takes the next step. It may cut an rc, which reaches staging through
-`gitops`; prod is always the operator's merge. Sessions run on the operator's
-Claude subscription: no `ANTHROPIC_API_KEY` in the environment and no
-`--bare`, either of which bills the API instead.
+**Renovate keeps every repo's dependencies current.** It runs as a scheduled
+workflow in `.github`, on the self-hosted runners, with
+`0xc0-labs-renovate`'s token. A preset in `.github` holds what is common:
+the schedule, the grouping, Conventional Commit titles (`chore(deps): …`),
+digests pinned, and nothing merged by itself. Each repo opts in with a short
+`renovate.json` that extends it and adds its own. Being self-hosted, it runs
+`mise lock` after it bumps a tool, so `mise.lock` stays in step. It leaves
+alone the pins of the org's own images in `gitops`: promotion owns them.
+
+## How we work
+
+One orchestrator session in the workspace and one session per repo, instead
+of one session in the workspace editing every repo (operator decision,
+2026-10-10; workspace#74).
+
+**Two roles.**
+
+- **The orchestrator**: `claude -n orchestrator`, in the workspace. It plans,
+  opens the issues, hands each repo its part, and checks what crosses repos.
+  It edits the workspace repo (the design, the rules) and the board, and no
+  other repo's files.
+- **A repo session**: `claude -n <name>`, in that repo, opened by the operator
+  in its own Herdr workspace when the repo is in play. It loads that repo's
+  `CLAUDE.md`, plugins and permissions, works only there, and goes up to a
+  draft PR.
+
+A session's name is its repo's, as Herdr takes an agent's: dots to dashes, a
+leading dot dropped (`github`, `offby1-cc`, `artistlabco-com`). The same name
+goes to Herdr and to `claude -n`, and it is how the orchestrator addresses a
+session. The operator works in Herdr: the workspace's own Herdr plugin
+(`herdr/`, workspace#76) opens or focuses any repo's session, or the
+orchestrator, from one key.
+
+They talk through Claude Code's messages between local sessions. When a
+repo's session is not open, the orchestrator asks the operator to open it;
+it does not start one on its own.
+
+**Repo sessions take their own work from the board.** One board for every
+repo, `artistlabco.com` included (`CLAUDE.md`, Tracking, has how an issue is
+filed). An issue turns **Ready** only with a complete contract and with what
+it depends on applied: GitHub's "blocked by" orders the sub-issues of a change
+across repos, and the orchestrator, or the operator, moves an issue to Ready
+once its blockers are closed. Todo holds the rest. A repo session opened as
+`claude -n <name> "/0xc0:work-issue"` takes its repo's Ready issue of highest
+priority and moves it to In Progress, which is the claim; when it finishes
+one, it looks for the next before it stops. A session acts only on a turn, so
+one with nothing Ready waits, and the orchestrator, when it moves an issue to
+Ready, messages that repo's session to look again. No session polls the board
+on a timer: every look is a turn of the model, paid whether or not anything
+is there. An issue set Ready by hand, past the orchestrator, is seen at the
+session's next look.
+
+**The issue is the contract.** A repo session starts with no memory of the
+conversation behind its task, so everything it needs is in its issue: the
+outcome, the acceptance criteria, the branch name, the sibling issues and the
+merge order. The orchestrator's message points at the issue and adds nothing
+the issue lacks. The repo session answers with a short report: the PR, its
+checks, what it could not do, and any question for the operator.
+
+**The orchestrator owns integration.** A green PR in every repo is not a
+working change. Before a set of PRs is called done, the orchestrator checks
+all of them, their merge order, and what one repo does to another: a policy
+another repo's plan needs, a setting a repo inherits from the workspace, a
+hook a session lacks. Each of those slipped through on 2026-10-10 while every
+PR on its own was green.
+
+**Plugins and permissions by kind of repo.** Every repo enables `0xc0` in its
+own `.claude/settings.json`. The infrastructure repos (`.github`,
+`infrastructure`, `gitops`, `vault`, `claude-config`) work with `0xc0`'s
+hooks and skills, with strict permissions. The application repos add
+gentle-ai at workspace scope and the official plugins they need, and an
+unattended session there may work up to a draft PR (operator decision,
+2026-10-10). Inside an application repo, gentle-ai leads the work: its own
+workflow plans, writes and reviews the code, with its receipt-driven review
+on. `/0xc0:work-issue` is the interface between that repo and the
+orchestrator: it starts from `main`, claims the issue on the board and takes
+it as the contract, opens the draft PR by the org's rules, reports back, and
+keeps its list of what a session never does (operator decision, 2026-10-11;
+workspace#68). The cost is accepted: gentle-ai's review asks the operator's
+consent in the session's tab for a change of medium or high risk, so those
+sessions are not wholly unattended, and its reviewers spend more of the
+subscription. The plugin carries no agents (operator decision, 2026-10-11;
+workspace#78): each repo's session builds and checks its own changes, and
+what a reviewer checked lives in that repo's docs (`infrastructure`'s
+`docs/zones.md`, Invariants; `gitops`' `CLAUDE.md`, Before opening a PR).
+
+**What stays the operator's**: marking a PR ready, merging, every apply,
+writing and rotating secrets, and which repos' sessions are open.
+
+**Cost.** Every session draws on the operator's Claude subscription, and
+several at work spend it faster than one. No `ANTHROPIC_API_KEY` in the
+environment and no `--bare`, either of which bills the API instead.
+
+Before anything depends on it, it runs as a pilot on one real change that
+crosses repos.

@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# The "open-session" action: opens the picker popup. An action runs a
+# command, not a pane, so it asks Herdr to open the plugin's own pane.
+set -euo pipefail
+exec "${HERDR_BIN_PATH:-herdr}" plugin pane open --plugin 0xc0-workspace --entrypoint pick
