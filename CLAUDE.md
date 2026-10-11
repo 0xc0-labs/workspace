@@ -228,6 +228,13 @@ Plugins keep themselves current (workspace#80):
 - **Everything written is in English**: file contents, file and directory
   names, code comments, commit messages, branch names, PR titles and bodies,
   docs. The conversation with the operator is in Spanish.
+- **Comments say only what the code cannot** (operator decision, 2026-10-12;
+  workspace#95): a non-obvious why, a constraint, an external quirk, or the
+  issue or document that holds the reason. A descriptive name beats a
+  comment. No comment says what the next line does, tells history (git and
+  the PR hold it; at most a reference such as `(#204)`), or repeats a README
+  or `docs/design.md`: it links to it. A why written nowhere else is never
+  dropped: it stays, or moves to the README.
 - No `tofu apply`, `tofu destroy` or `ansible-playbook` without `--check`.
 - **Every workflow with steps of its own lives in `.github`**, as a reusable
   workflow (operator decision, 2026-09-29). Every other repo holds only thin
