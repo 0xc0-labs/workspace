@@ -318,10 +318,11 @@ installer, the API) answers 403 there, with no hint of the internal name
 **Payload CMS runs as one multi-tenant instance** (operator decision,
 2026-10-09; workspace#64), the backend of several frontends: one tenant
 per frontend, through Payload's multi-tenant plugin. Its code is the
-`payload` repo, private like `artistlabco.com`. It is public at `payload.0xc0.cc` for the API and media
-the frontends read; `/admin` answers 403 there and is reached only at
-`payload.int.0xc0.cc`, WARP only, as Mautic's admin is. Its media sits on
-a Longhorn RWO volume, so it runs one replica.
+`payload` repo, private like `artistlabco.com`. The frontends read its API
+inside the cluster, and only the uploaded files are public, at
+`payload.0xc0.cc` (Application delivery, below; workspace#68). The admin is
+reached only at `payload.int.0xc0.cc`, WARP only, as Mautic's admin is. Its
+media sits on a Longhorn RWO volume, so it runs one replica.
 
 **One shared PostgreSQL for the applications that need it** (operator
 decision, 2026-10-09; workspace#64): Payload does not support MySQL or
@@ -409,6 +410,9 @@ is gone.
 | Bug bounty lab      | reserved range, out of scope                         |
 | Flux                | operator decision (2026-09-22): GitOps is ArgoCD     |
 | One ordered pipeline for the cluster's deployment | the three steps stay apart: OpenTofu creates the VMs, Ansible configures them and installs ArgoCD, ArgoCD syncs gitops (operator decision, 2026-09-30, infrastructure#112) |
+| A self-hosted registry (Zot, Distribution), for now | GHCR stores and serves container images free, private ones included; one in the cluster adds TLS, auth, a volume, a containerd mirror on every node, and an outage that stops every reschedule. Reconsidered if GitHub starts billing container storage (operator decision, 2026-10-10) |
+| Mend's hosted Renovate | a third party with write access to the private repos, and the token that reads the private npm package kept at Mend, outside Vault; Renovate runs self-hosted from `.github` (operator decision, 2026-10-11; workspace#68) |
+| A public Payload API | the frontends render on the server and read it inside the cluster; only the uploaded files are public (operator decision, 2026-10-11; workspace#68) |
 
 ## Accepted risks
 
@@ -459,10 +463,151 @@ is gone.
 ## Repos and policies
 
 `infrastructure` and `.github`: `main` only, PR required, apply behind manual
-approval. Applications: each decides whether it has a test environment; one
-that does promotes test→prod with the same digest, never a rebuild.
+approval. Applications: each decides whether it has a staging environment; one
+that does promotes staging→prod with the same digest, never a rebuild
+(Application delivery, below).
 ArgoCD points at `gitops/bootstrap/prod/`, which deploys `platform/` and
 `apps/`.
+
+## Application delivery
+
+How an application's code goes from a commit to staging and prod, and how a
+frontend and the backend it reads stay in step (operator decisions,
+2026-10-10 and 2026-10-11; workspace#68). It applies to `payload` and
+`artistlabco.com` first; another application adopts it when it gets a
+staging environment.
+
+**Trunk-based, versioned from Conventional Commits.** `main` is the trunk:
+short-lived branches, squash merges, no release branches. Every merge to
+`main` builds an image, `sha-<7>`, and cuts the next release candidate,
+`vX.Y.Z-rc.N`, a tag on that commit whose version `git-cliff` computes from
+the Conventional Commits since the last release (`feat` a minor, `fix` a
+patch, `!` a major). Every rc goes to staging. A release, `vX.Y.Z`, is a
+`workflow_dispatch` that the operator or the orchestrator runs: it takes the
+rc that staging runs, read from `gitops`, and makes it a GitHub Release on
+the same commit, with its changelog. A hotfix is a fix on `main`, its rc and
+a release. Versions start at `0.1.0`; while in 0.x a breaking change bumps
+the minor, which npm's caret already treats as breaking. `1.0.0` is cut by
+hand when the first frontend reaches prod.
+
+**Promotion is a PR in `gitops`, and the image is never rebuilt.** An rc and a
+release each tag the same digest with their version, and open a PR in `gitops`
+that changes only the environment's pin in its `kustomization.yaml`: the
+`images:` entry, tag and digest, and the version beside it, which `gitops`' CI
+checks against the tag. Staging's PR is set to merge itself once its checks
+pass. Prod's is the operator's merge, and that merge is prod's approval:
+GitHub Free gives private repositories no environment reviewers, wait timers,
+environment secrets or rulesets. Rolling back is reverting that PR.
+
+**Two GitHub Apps open the bots' PRs, and their keys never leave Vault.**
+`0xc0-labs-promoter` is installed on `gitops` alone, with contents and pull
+requests; `0xc0-labs-renovate`, on every repo. Their private keys are
+imported into Transit (`github-promoter-app`, `github-renovate-app`), as the
+runners' is: a job signs its App's JWT through Transit with its repo's JWT
+role, and exchanges it for an installation token narrowed to the repo and
+the permissions it needs. Two Apps rather than one, so that an
+application's CI can mint write access to `gitops` and nothing else. The
+`issue` check lets a PR through without a linked issue when one of the two
+Apps opened it: it names the release or the dependency it moves, and the
+board tracks the work of people and sessions.
+
+**The private applications run their whole CI on the self-hosted runners.**
+Vault, and with it the Apps' tokens, is reachable only from inside; running
+there also spares the GitHub-hosted minutes private repositories pay for.
+The runner group admits these repos and the reusable workflows they call,
+and the runners build images with rootless BuildKit, with the provenance and
+SBOM the GitHub-hosted build gives today. A dependency's code runs on the same
+runners that reach Vault, so a dependency version is taken only once it is
+three days old (`minimumReleaseAge`, in Renovate and in pnpm), and pnpm runs
+the build scripts of the packages it is told to (`onlyBuiltDependencies`)
+and no others. Public repos (`offby1.cc`) keep building on GitHub's runners.
+
+**Staging is a second environment of the same application.** In `gitops`,
+an application is one folder with one directory per environment:
+`apps/<app>/prod/` and, when it has staging, `apps/<app>/staging/`, with
+what both share in `apps/<app>/base/`. An application with one environment
+keeps all of it in `prod/`; when it gains staging, the shared part moves to
+`base/`. The `apps` ApplicationSet makes an Argo CD application of each
+environment: prod keeps the application's name and namespace, `<app>`;
+staging is `<app>-staging`. Staging has its own database on the shared
+server, its own volumes, and its own `apps/<app>-staging/` path in Vault,
+which the `apps` role already covers. It is reached over WARP only, at
+`<app>-staging.int.0xc0.cc`, and is observed as prod is, its signals tagged
+`deployment.environment=staging`. Its data is a seed versioned in `payload`:
+tenants, test users and sample content, reset when needed; later, once prod
+has content, a copy of prod without its users collection, run by the
+operator. Applications without staging (`offby1.cc`, Mautic) move to
+`prod/` and stay as they are. Each staging environment doubles its
+application's memory in the cluster.
+
+**Migrations run before the new version, from the same image.** An Argo CD
+PreSync Job runs `payload migrate` with the digest being deployed: when it
+fails, the sync stops there and the running version keeps serving. Every
+migration is expand and contract, so the previous version works on the new
+schema and rolling back the image is safe.
+
+**The frontends render on the server.** A frontend is a Next.js application
+in the cluster that reads Payload through its internal Service, with a
+read-only API key of its tenant, kept in Vault: the browser never calls the
+API, and what a page needs from it, a form or a search, goes through the
+frontend's own server. Staging's frontend reads staging's Payload, and the
+network policies let each Payload be reached only by the frontends of its
+environment. The build never reads Payload, and nothing that differs between
+environments is baked into the image (no `NEXT_PUBLIC_` value that does), so
+one image serves both. Outside, only the routes that serve uploaded files
+are public at `payload.0xc0.cc`; the API, GraphQL and authentication stay
+inside, and the admin stays at `payload.int.0xc0.cc`.
+
+**Observable as every application is, in both environments.** Stack's rule
+(workspace#52) holds for each environment and for the migration Job, and the
+delivery adds what ties the signals to it. Every signal carries
+`service.name`, the application; `service.version`, the version the
+environment runs, `vX.Y.Z-rc.N` in staging and `vX.Y.Z` in prod, set beside
+the image in the environment's `kustomization.yaml`; the commit, baked into
+the image when it is built, so a trace leads to the code even from an image
+run outside `gitops`; and `deployment.environment`, from the environment's
+directory. The same image is an rc in staging and a release in prod, so its
+version cannot be baked into it. A request is one trace from the browser to
+the database: RUM starts it and sends `traceparent` to the frontend's own
+origin only, the frontend's server continues it, its call to Payload carries
+it, and Payload's spans reach PostgreSQL. Logs are JSON with the trace and
+span IDs, so OpenObserve opens a request's logs from its trace. Payload,
+itself a Next.js application, and the frontends instrument with OpenTelemetry
+through Next.js's instrumentation hook, and each environment's namespace is
+admitted in the collector's `otlp-from-senders`.
+
+**Images of private repositories stay private.** The cluster pulls them from
+GHCR with a read-only token at `apps/shared/ghcr-pull` in Vault, which Vault
+Secrets Operator turns into an `imagePullSecret` in each namespace that
+needs one. Images of public repos stay public, as today.
+
+**The backend publishes a versioned contract.** `payload` publishes its
+generated types as `@0xc0-labs/payload-types`, a private npm package in
+GitHub Packages, with the version of the rc or release that built it: an rc
+publishes `X.Y.Z-rc.N` under the `rc` dist-tag, a release `X.Y.Z`. A
+frontend pins it in its `package.json`, so a breaking change in the backend
+fails the frontend's build, never its users. The backend changes by expand
+and contract: it adds (a minor) and deploys, the frontends adopt, and it
+removes (a breaking release) only once no deployed frontend uses what goes.
+
+**CI enforces the order between repos:**
+
+1. A frontend release cannot depend on a prerelease of the contract, so the
+   backend always reaches prod first.
+2. Promoting a frontend to an environment fails unless that environment
+   already runs a backend version at least as high as the one the frontend
+   depends on, read from `gitops`.
+3. Later: a breaking release of the backend does not reach prod while a
+   frontend in prod still depends on the previous one.
+
+**Renovate keeps every repo's dependencies current.** It runs as a scheduled
+workflow in `.github`, on the self-hosted runners, with
+`0xc0-labs-renovate`'s token. A preset in `.github` holds what is common:
+the schedule, the grouping, Conventional Commit titles (`chore(deps): …`),
+digests pinned, and nothing merged by itself. Each repo opts in with a short
+`renovate.json` that extends it and adds its own. Being self-hosted, it runs
+`mise lock` after it bumps a tool, so `mise.lock` stays in step. It leaves
+alone the pins of the org's own images in `gitops`: promotion owns them.
 
 ## How we work
 
@@ -527,7 +672,16 @@ own `.claude/settings.json`. The infrastructure repos (`.github`,
 hooks and skills, with strict permissions. The application repos add
 gentle-ai at workspace scope and the official plugins they need, and an
 unattended session there may work up to a draft PR (operator decision,
-2026-10-10). The plugin carries no agents (operator decision, 2026-10-11;
+2026-10-10). Inside an application repo, gentle-ai leads the work: its own
+workflow plans, writes and reviews the code, with its receipt-driven review
+on. `/0xc0:work-issue` is the interface between that repo and the
+orchestrator: it starts from `main`, claims the issue on the board and takes
+it as the contract, opens the draft PR by the org's rules, reports back, and
+keeps its list of what a session never does (operator decision, 2026-10-11;
+workspace#68). The cost is accepted: gentle-ai's review asks the operator's
+consent in the session's tab for a change of medium or high risk, so those
+sessions are not wholly unattended, and its reviewers spend more of the
+subscription. The plugin carries no agents (operator decision, 2026-10-11;
 workspace#78): each repo's session builds and checks its own changes, and
 what a reviewer checked lives in that repo's docs (`infrastructure`'s
 `docs/zones.md`, Invariants; `gitops`' `CLAUDE.md`, Before opening a PR).
