@@ -558,6 +558,21 @@ one image serves both. Outside, only the routes that serve uploaded files
 are public at `payload.0xc0.cc`; the API, GraphQL and authentication stay
 inside, and the admin stays at `payload.int.0xc0.cc`.
 
+**Observable as every application is, in both environments.** Stack's rule
+(workspace#52) holds for each environment and for the migration Job, and the
+delivery adds what ties the signals to it. Every signal carries
+`service.name`, the application; `service.version`, the commit, baked into
+the image when it is built, so staging and prod report the same one for the
+same image; and `deployment.environment`, from the environment's directory
+in `gitops`. A request is one trace from the browser to the database: RUM
+starts it and sends `traceparent` to the frontend's own origin only, the
+frontend's server continues it, its call to Payload carries it, and
+Payload's spans reach PostgreSQL. Logs are JSON with the trace and span IDs,
+so OpenObserve opens a request's logs from its trace. Payload, itself a
+Next.js application, and the frontends instrument with OpenTelemetry through
+Next.js's instrumentation hook, and each environment's namespace is admitted
+in the collector's `otlp-from-senders`.
+
 **Images of private repositories stay private.** The cluster pulls them from
 GHCR with a read-only token at `apps/shared/ghcr-pull` in Vault, which Vault
 Secrets Operator turns into an `imagePullSecret` in each namespace that
