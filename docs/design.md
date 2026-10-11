@@ -435,6 +435,8 @@ is gone.
 | A self-hosted registry (Zot, Distribution), for now | GHCR stores and serves container images free, private ones included; one in the cluster adds TLS, auth, a volume, a containerd mirror on every node, and an outage that stops every reschedule. Reconsidered if GitHub starts billing container storage (operator decision, 2026-10-10) |
 | Mend's hosted Renovate | a third party with write access to the private repos, and the token that reads the private npm package kept at Mend, outside Vault; Renovate runs self-hosted from `.github` (operator decision, 2026-10-11; workspace#68) |
 | A public Payload API | the frontends render on the server and read it inside the cluster; only the uploaded files are public (operator decision, 2026-10-11; workspace#68) |
+| Vault paths per application and environment (`apps/<app>/<env>/`) | the `apps` policy reads `apps/<namespace>/*` by the pod's namespace, and each environment is its own namespace (`<app>`, `<app>-staging`), so one policy covers every application and environment; a path per application and environment needs a policy per application (operator decision, 2026-10-11; workspace#87) |
+| semantic-release | it releases on every push to a branch, the branch's last commit; a release here promotes the rc staging runs, an earlier commit if main moved on. git-cliff computes the version, one pinned binary where semantic-release is Node and plugins on runners that reach Vault (operator decision, 2026-10-11; workspace#87) |
 | Longhorn RWX volumes for applications' files | an NFS share-manager is one more pod and one more single point, and the application still serves its files itself; R2 instead (operator decision, 2026-10-11; workspace#88) |
 | Hetzner Object Storage, for now | a fixed monthly fee with 1 TB included, its own hostname with Cloudflare in front anyway, and another provider's keys, where R2 is free up to 10 GB with no egress fees. Reconsidered past about 400 GB, where it costs less (operator decision, 2026-10-11; workspace#88) |
 | RustFS or an object store in the cluster, for applications' files | RustFS is run by hand on the node and holds the OpenTofu state; one in the cluster costs memory the cluster does not have to spare (operator decision, 2026-10-11; workspace#88) |
@@ -569,8 +571,11 @@ operator. Applications without staging (`offby1.cc`, Mautic) move to
 application's memory in the cluster.
 
 **Migrations run before the new version, from the same image.** An Argo CD
-PreSync Job runs `payload migrate` with the digest being deployed: when it
-fails, the sync stops there and the running version keeps serving. Every
+Sync hook in wave 1, before the Deployment in wave 2, runs `payload migrate`
+with the digest being deployed: when it fails, the sync stops there and the
+running version keeps serving. Not a PreSync hook: on an application's first
+sync it runs before its namespace and secrets exist, and never finishes
+(gitops#142). Every
 migration is expand and contract, so the previous version works on the new
 schema and rolling back the image is safe.
 

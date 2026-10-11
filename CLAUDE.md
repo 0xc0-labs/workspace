@@ -69,7 +69,9 @@ is private. **No work starts without an issue on it.**
 2. Move it to `In Progress` when you start, `Blocked` when it waits on
    something outside the task.
 3. Every PR body links it: `Closes #N`, or `Refs owner/repo#N` from a sibling
-   repo. A PR without a linked issue fails the `issue` check.
+   repo. A PR without a linked issue fails the `issue` check, unless one of
+   the org's GitHub Apps opened it (`0xc0-labs-promoter`,
+   `0xc0-labs-renovate`): no person can open a PR as an App.
 4. It closes through the PR that finishes it, not by hand.
 
 How an issue is written and filed, so the board filters without labels:
