@@ -44,8 +44,9 @@ A downstream change is not merged until the upstream one is applied.
   criteria, the branch, the sibling issues and the merge order. Hands each repo
   its issue, and checks the whole set before calling it done: every PR's
   checks, the merge order, and what one repo does to another. Edits only this
-  repo and the board, never another repo's files. When a repo's session is
-  not open, asks the operator to open it.
+  repo and the board, never another repo's files. After it sets a repo's
+  issues Ready, starts that repo's autopilot:
+  `herdr/bin/autopilot start <repo directory>`.
 - **In a repo** (`claude -n <name>`). Works only that repo, from its issue,
   up to a draft PR, and reports back to the orchestrator: the PR, its checks,
   what it did not do, and any question. Anything that reaches past the repo
@@ -58,11 +59,12 @@ A downstream change is not merged until the upstream one is applied.
   addresses a session by that name.
 - **Opening one**: in Herdr, the workspace's plugin (`herdr/README.md`) opens
   or focuses a repo's session, or the orchestrator, from one key.
-- **The autopilot**, a repo at a time, only when the operator turns it on from
-  another key (`herdr/README.md`): it starts one session per Ready issue,
+- **The autopilot** (`herdr/README.md`), started by the orchestrator, or by
+  the operator from another key: it starts one session per Ready issue,
   named `<name>-<n>` (`payload-19`), each in its own worktree under
-  `.worktrees/`, which works that issue and ends. A repo whose autopilot is
-  off works as above.
+  `.worktrees/`, which works that issue and ends, and turns itself off when
+  nothing is left. The operator pauses a repo from the key; an issue to leave
+  alone is Blocked.
 
 ## Tracking — mandatory
 
