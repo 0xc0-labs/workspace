@@ -313,7 +313,7 @@ def turn_on(d):
         created = herdr("workspace", "create", "--cwd", str(d), "--label", name, "--no-focus", *env)
         herdr("tab", "rename", created["tab"]["tab_id"], TAB)
         pane = created["root_pane"]["pane_id"]
-    herdr("pane", "run", pane, command)
+    run(HERDR, "pane", "run", pane, command)  # prints nothing on success, unlike the rest
     print(f"{repo}: autopilot on")
 
 
