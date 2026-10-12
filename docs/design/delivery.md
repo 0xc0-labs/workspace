@@ -85,28 +85,30 @@ application's CI can mint write access to `gitops` and nothing else. The
 Apps opened it: it names the release or the dependency it moves, and the
 board tracks the work of people and sessions.
 
-**An application checks its code and builds its image on GitHub's runners;
-only its rc and release, which log in to Vault, run on the self-hosted ones**
-(operator decision, 2026-10-12; workspace#138). Two Next.js builds on one CI
-VM, 2 cores and 4 GB shared by its two runners, hang it, and the node has no
-memory left to give it: 62 GB, 60 of them allocated to VMs
-(infrastructure#235). A private repository's standard GitHub runner has 2
-CPUs and 8 GB to itself, and neither the checks nor the image log in to
-Vault. The rc and release jobs do, for the Apps' tokens, and Vault is
-reachable only from inside: they stay on the self-hosted runners, with the
-pipelines of `infrastructure`, `vault` and `packages`. The runner group
-admits those repos, `offby1.cc` among them for its release, and the reusable
-workflows they call. GitHub Free gives private repositories 2,000 minutes a
-month and, with no payment method, blocks their jobs once they run out
-instead of billing them: `payload` used about 320 from 2026-10-01 to 10-12,
-hung builds included. A dependency's code runs wherever it is installed: on
-GitHub's runners, beside the token that pushes the image, and in `packages`'
-pipeline, on the runners that reach Vault. So a dependency version is taken
-only once it is three days old (`minimumReleaseAge`, in Renovate and in
-pnpm), and pnpm runs the build scripts of the packages it is told to
-(`allowBuilds`, which replaced `onlyBuiltDependencies` in pnpm 11) and no
-others. Which runner each job asks for is in the
-[`.github` README](https://github.com/0xc0-labs/.github/blob/main/README.md#application-repos).
+**Only the jobs that log in to Vault run on the self-hosted runners;
+everything else runs on GitHub's** (operator decision, 2026-10-12;
+workspace#138). Two Next.js builds on one CI VM, 2 cores and 4 GB shared by
+its two runners, hang it, and the node has no memory left to give it: 62 GB,
+60 of them allocated to VMs (infrastructure#235). A private repository's
+standard GitHub runner has 2 CPUs and 8 GB to itself. So an application's
+checks and image, and `packages`' checks and releases, run there: none of
+them logs in to Vault. The jobs that do stay on the self-hosted runners, as
+Vault is reachable only from inside: an application's rc and release, for
+the Apps' tokens, and the pipelines of `infrastructure` and `vault`. The
+runner group admits those repos, `offby1.cc` among them for its release, and
+the reusable workflows they call. GitHub Free gives private repositories
+2,000 minutes a month and, with no payment method, blocks their jobs once
+they run out instead of billing them: `payload` used about 320 from
+2026-10-01 to 10-12, hung builds included. A dependency's code runs where it
+is installed and built: on GitHub's runners, beside the tokens that push an
+application's image and publish the org's packages, and on the machines of
+people and sessions. An image or a package it poisons reaches the cluster,
+or every application that pins it. So a dependency version is taken only
+once it is three days old (`minimumReleaseAge`, in Renovate and in pnpm),
+and pnpm runs the build scripts of the packages it is told to (`allowBuilds`,
+which replaced `onlyBuiltDependencies` in pnpm 11) and no others. Which
+runner each job asks for is in the
+[`.github` README](https://github.com/0xc0-labs/.github/blob/main/README.md).
 
 **Integration tests bring their own PostgreSQL, from mise** (operator
 decision, 2026-10-12; workspace#93). It was decided while the checks ran on
