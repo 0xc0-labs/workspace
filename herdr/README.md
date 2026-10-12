@@ -49,8 +49,8 @@ Then, every minute, it:
    Ready issues blocked by nothing open, by priority, then number:
 
    ```sh
-   claude --permission-mode auto --model sonnet --effort medium \
-     --settings .worktrees/.hooks.json -n <name>-<n> -w <name>-<n> "/0xc0:work-issue <repo>#<n>"
+   claude --permission-mode auto --settings .worktrees/.hooks.json \
+     -n <name>-<n> -w <name>-<n> "/0xc0:work-issue <repo>#<n>"
    ```
 
    A round that starts a session updates `0xc0` first, once: a session
@@ -96,21 +96,21 @@ remove and start, changing nothing.
 ## Opening a session by hand
 
 Pick a repo, and a tab named after it opens in its Herdr workspace, or a new
-workspace, with `claude --model sonnet --effort medium -n <name> "/0xc0:work-issue"`: the session takes that
+workspace, with `claude -n <name> "/0xc0:work-issue"`: the session takes that
 repo's Ready issue of highest priority, and the next when it finishes. Pick
-the workspace, and the orchestrator opens: `claude --model opus -n
-orchestrator`. A session already open is focused, not opened twice.
+the workspace, and the orchestrator opens: `claude -n orchestrator`. A
+session already open is focused, not opened twice.
 
 ## Models
 
-The orchestrator runs Opus, which plans, writes contracts and reviews; every
-repo session, by hand or from the autopilot, runs Sonnet at medium effort,
-since it works from a closed contract. Every session had run Opus with the
-1M context and burned the plan's usage (operator decision, 2026-10-12;
-workspace#143). The flags are passed on every start, so a machine whose user
-settings differ runs the same models; they are set once, by kind of session,
-in `session-models.conf`, which both scripts read. The orchestrator's effort
-stays the user settings'. A running session keeps its model until it ends.
+Herdr passes no model flag. Each repo's committed `.claude/settings.json`
+decides its sessions' model: Opus at xhigh effort, compacting at 200k tokens,
+for the workspace's orchestrator; Sonnet at medium effort for every repo's
+sessions, and Sonnet for their subagents. A session started by Herdr, the
+autopilot or by hand, on any machine, runs the same, whatever the user's own
+settings say. Every session had run Opus with the 1M context and burned the
+plan's usage (operator decisions, 2026-10-12; workspace#145). A running
+session keeps its model until it ends.
 
 ## Names
 
