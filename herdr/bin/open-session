@@ -3,8 +3,11 @@
 # Herdr workspace, listed in the sidebar under the session's name, or focuses
 # it when it is already open.
 #
-#   the workspace itself   claude -n orchestrator
-#   a repo                 claude -n <name> "/0xc0:work-issue"
+#   the workspace itself   claude --model opus -n orchestrator
+#   a repo                 claude --model sonnet --effort medium \
+#                            -n <name> "/0xc0:work-issue"
+#
+# The model flags come from herdr/session-models.conf, by kind of session.
 #
 # <name> is the repo's, as Herdr takes an agent's (`[a-z][a-z0-9_-]`): dots to
 # dashes, a leading dot dropped. `.github` is `github`, `offby1.cc`
@@ -18,12 +21,18 @@ root="$(cd "$(dirname "$0")/../.." && pwd)"
 dir="$(cd "${1:?usage: open-session <dir> [--dry-run]}" && pwd)"
 dry="${2:-}"
 
+model_flags() {  # model_flags <kind>: that kind's line of session-models.conf, less the kind
+  read -ra flags < <(awk -v k="$1" '$1 == k { $1 = ""; print }' "$root/herdr/session-models.conf")
+}
+
 if [ "$dir" = "$root" ]; then
   name=orchestrator
-  args=(-n "$name")
+  model_flags orchestrator
+  args=("${flags[@]}" -n "$name")
 else
   name="$(basename "$dir" | tr 'A-Z.' 'a-z-' | sed 's/^-*//')"
-  args=(-n "$name" "/0xc0:work-issue")
+  model_flags repo
+  args=("${flags[@]}" -n "$name" "/0xc0:work-issue")
 fi
 [[ "$name" =~ ^[a-z][a-z0-9_-]{0,31}$ ]] || { echo "open-session: '$name' is not a name Herdr takes" >&2; exit 1; }
 
