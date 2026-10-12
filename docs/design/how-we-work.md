@@ -26,8 +26,9 @@ session. The operator works in Herdr: the workspace's own Herdr plugin
 orchestrator, from one key.
 
 They talk through Claude Code's messages between local sessions. When a
-repo's session is not open, the orchestrator asks the operator to open it;
-it does not start one on its own.
+repo's session is not open, the orchestrator starts the repo's autopilot
+(below), which opens one session per Ready issue; it opens no other session
+on its own.
 
 **Repo sessions take their own work from the board.** One board for every
 repo, `artistlabco.com` included (`CLAUDE.md`, Tracking, has how an issue is
@@ -50,9 +51,12 @@ every earlier one in its context: each costs more of the subscription than
 the last, the work gets worse, and the session keeps the rules and plugins it
 loaded at its start. Nothing of an earlier issue helps the next: the contract
 is the issue, the progress is the feature document and the PR, the rules are
-the `CLAUDE.md` files. So, besides the sessions above, a repo can run on its
-autopilot, which the operator turns on or off from a key. A repo whose
-autopilot is off works exactly as above.
+the `CLAUDE.md` files. So a repo's issues run on its autopilot: the
+orchestrator sets an issue Ready and starts the autopilot of its repo
+(operator decision, 2026-10-12; workspace#107), which works the repo's Ready
+issues one session each and turns itself off when nothing is left. The
+operator can turn it on or off from a key too. A repo whose autopilot is off
+works as above.
 
 - **One session per issue.** The autopilot starts
   `claude -n <name>-<n> -w <name>-<n> "/0xc0:work-issue <repo>#<n>"`
@@ -76,10 +80,12 @@ autopilot is off works exactly as above.
   closes a session that is working or waiting on the operator. Its look at
   the board is a script's, not a turn of the model: one small GraphQL query,
   one point of the GitHub API's 5,000 an hour, and none while every slot is
-  busy.
+  busy. Once no session tab is left and nothing is Ready to start, it closes
+  its own tab, so it never polls an empty board.
 - **Holds live on the board.** An issue the operator wants left alone is
-  Blocked. A repo is paused by turning its autopilot off, which starts
-  nothing more and lets the running sessions finish.
+  Blocked. A repo is paused by turning its autopilot off from the key, which
+  starts nothing more and lets the running sessions finish; the orchestrator
+  starts it again at the next issue it sets Ready.
 - **Never several sessions on one issue.** A big issue is split into
   sub-issues, which run side by side where none blocks another. Inside one
   issue, gentle-ai spreads the work over its own subagents.
@@ -127,8 +133,8 @@ gentle-ai means it to be recoverable, and commits its own; Engram's copy is
 on one laptop.
 
 **What stays the operator's**: marking a PR ready, merging, every apply,
-writing and rotating secrets, which repos' sessions are open, and which
-repos' autopilots are on.
+writing and rotating secrets, which repos' sessions are open, and pausing
+a repo's autopilot.
 
 **Cost.** Every session draws on the operator's Claude subscription, and
 several at work spend it faster than one: an autopilot's slots bound how

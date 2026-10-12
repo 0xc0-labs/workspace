@@ -4,6 +4,7 @@ per issue, each in its own tab and worktree (README.md, Autopilot).
 
   autopilot run <dir> [--dry-run]   the loop, in the repo's `autopilot` tab;
                                     --dry-run prints one round and changes nothing
+  autopilot start <dir>             turns it on, if it is off
   autopilot toggle <dir>            turns it on or off
   autopilot state <dir>             prints on or off
 
@@ -14,7 +15,8 @@ session per free slot:
   claude --settings .worktrees/.hooks.json -n <session>-<n> -w <session>-<n> \
     "/0xc0:work-issue <repo>#<n>"
 
-It never closes a session that is working or waiting on the operator.
+It never closes a session that is working or waiting on the operator, and
+turns itself off once no session runs and nothing is Ready to start.
 """
 import json
 import os
@@ -115,7 +117,8 @@ def autopilot_tab(name):
 
 
 def ready(repo):
-    """The repo's issues a session may take, most urgent first."""
+    """The repo's issues a session may take, most urgent first; None when the
+    API budget is too low to look."""
     out = run("mise", "exec", "--", "gh", "api", "graphql",
               "-f", f"query={QUERY}", "-f", f"owner={ORG}", "-f", f"name={repo}",
               cwd=ROOT)
@@ -124,7 +127,7 @@ def ready(repo):
     if budget["remaining"] < LOW_BUDGET:
         log(f"GitHub API: {budget['remaining']} points left until "
             f"{budget['resetAt']}; starting nothing until then")
-        return []
+        return None
     found = []
     for issue in data["repository"]["issues"]["nodes"]:
         if issue["issueDependenciesSummary"]["blockedBy"]:
@@ -234,6 +237,8 @@ def launch(d, repo, ws, session, n, dry):
 
 
 def round_(d, repo, name, launched, dry):
+    """One round; True when nothing is left: no session tab, and nothing Ready
+    to start."""
     ws = workspace(name)
     if ws is None and not dry:
         raise Failed(f"no Herdr workspace named {name}")
@@ -248,10 +253,15 @@ def round_(d, repo, name, launched, dry):
             busy.add(n)
     free = slots(repo) - len(busy)
     if free <= 0:
-        return
-    for n in [n for n in ready(repo) if n not in busy and n not in launched][:free]:
+        return False
+    found = ready(repo)
+    if found is None:
+        return False
+    todo = [n for n in found if n not in busy and n not in launched][:free]
+    for n in todo:
         launch(d, repo, ws, f"{name}-{n}", n, dry)
         launched.add(n)
+    return not busy and not todo
 
 
 def loop(d, dry):
@@ -259,22 +269,40 @@ def loop(d, dry):
     log(f"{repo}: " + ("dry run" if dry else "autopilot on") + f", {slots(repo)} at a time")
     launched = set()
     while True:
+        done = False
         try:
-            round_(d, repo, name, launched, dry)
+            done = round_(d, repo, name, launched, dry)
         except (Failed, json.JSONDecodeError, KeyError) as e:
             log(f"error: {e}")
         if dry:
+            return
+        if done:
+            log(f"{repo}: nothing Ready and no session running; autopilot off")
+            tab = autopilot_tab(name)
+            if tab and tab["tab_id"] == os.environ.get("HERDR_TAB_ID"):
+                herdr("tab", "close", tab["tab_id"])
             return
         time.sleep(INTERVAL)
 
 
 def toggle(d):
-    repo, name = d.name, session_name(d.name)
-    tab = autopilot_tab(name)
+    tab = autopilot_tab(session_name(d.name))
     if tab:
         herdr("tab", "close", tab["tab_id"])
-        print(f"{repo}: autopilot off")
-        return
+        print(f"{d.name}: autopilot off")
+    else:
+        turn_on(d)
+
+
+def start(d):
+    if autopilot_tab(session_name(d.name)):
+        print(f"{d.name}: autopilot already on")
+    else:
+        turn_on(d)
+
+
+def turn_on(d):
+    repo, name = d.name, session_name(d.name)
     command = f"{shlex.quote(str(Path(__file__).resolve()))} run {shlex.quote(str(d))}"
     env = ["--env", f"HERDR_BIN_PATH={HERDR}"]
     ws = workspace(name)
@@ -290,13 +318,15 @@ def toggle(d):
 
 
 def main(argv):
-    if len(argv) < 2 or argv[0] not in ("run", "toggle", "state"):
+    if len(argv) < 2 or argv[0] not in ("run", "start", "toggle", "state"):
         sys.exit(__doc__.strip().split("\n\n")[1])
     d = Path(argv[1]).resolve()
     if not (d / ".git").is_dir() or d.parent != ROOT:
         sys.exit(f"autopilot: {d} is not a repo of the workspace")
     if argv[0] == "run":
         loop(d, "--dry-run" in argv[2:])
+    elif argv[0] == "start":
+        start(d)
     elif argv[0] == "toggle":
         toggle(d)
     else:

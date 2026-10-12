@@ -4,14 +4,15 @@ The workspace's [Herdr](https://herdr.dev) plugin, `0xc0-workspace`. One key
 opens a repo's Claude Code session in its own Herdr workspace, or the
 orchestrator. Another turns a repo's autopilot on or off: the autopilot
 works the repo's Ready issues, one fresh session per issue, each in its own
-tab and worktree (`docs/design/how-we-work.md`). A repo whose autopilot is
-off works as it did before it.
+tab and worktree, and turns itself off when nothing is left
+(`docs/design/how-we-work.md`). The orchestrator starts it with
+`bin/autopilot start <repo>` after it sets issues Ready.
 
 ## Autopilot
 
-Pick a repo, and its Herdr workspace gains an `autopilot` tab running
-`bin/autopilot run <repo>`, which logs a line for everything it does. Every
-minute it:
+`bin/autopilot start <repo>`, or picking a repo from the key, gives the
+repo's Herdr workspace an `autopilot` tab running `bin/autopilot run <repo>`,
+which logs a line for everything it does. Every minute it:
 
 1. closes the tab of each session that printed its last line,
    `work-issue: done <repo>#<n>` or `work-issue: stopped <repo>#<n>: <reason>`,
@@ -34,6 +35,10 @@ minute it:
    a `-w` worktree before it loads the plugins' hooks. If an issue's worktree
    is still there, kept from an earlier session, the autopilot leaves that
    issue alone and says so.
+
+After a round with no session tab and nothing Ready to start, it closes its
+own tab. A round that could not read the board, on a low API budget, does
+not count.
 
 `autopilot.conf` holds each repo's slots: two in the application repos, one
 in the others. Picking the repo again, or closing the `autopilot` tab, turns
@@ -105,7 +110,7 @@ autopilot.conf      each repo's slots
 bin/open-picker     an action: opens a popup
 bin/pick            the popups: the workspace and every repo cloned in it
 bin/open-session    opens or focuses one directory's session
-bin/autopilot       the autopilot: its loop, and turning it on or off
+bin/autopilot       the autopilot: its loop, and starting or toggling it
 ```
 
 `bin/open-session <dir> --dry-run` prints what it would do, touching
