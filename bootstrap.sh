@@ -20,10 +20,11 @@ herdr plugin list | grep -qF "local:$PWD/herdr]" ||
   herdr plugin link "$PWD/herdr"
 
 # Each clone: cloned if missing, on an up-to-date main unless someone works
-# in it, with its plugins installed for its path (workspace#106, #115).
+# in it, with its plugins installed for its path, and trusted by Claude Code
+# (workspace#106, #115, #136).
 for repo in .github claude-config infrastructure gitops vault packages offby1.cc payload artistlabco.com; do
   echo "==> $repo"
   herdr/bin/autopilot prepare "$repo"
 done
-echo "==> workspace: plugins"
+echo "==> workspace: plugins and trust"
 herdr/bin/autopilot prepare .
