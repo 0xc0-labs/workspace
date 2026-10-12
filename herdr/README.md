@@ -136,6 +136,17 @@ with no reinstall. It has mise trust every config under
 every org repo and for the workspace, which also trusts each in Claude Code
 (Autopilot, above).
 
+It also leaves the machine able to install the org's private packages
+(`.github`'s README, Shared packages, step 5): it appends
+`//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}` to `~/.npmrc` when
+that exact line is missing, creating the file with mode 600 and changing
+nothing else in it, and it checks that gh's token has the `read:packages`
+scope. When it lacks it, the script prints
+`gh auth refresh -h github.com -s read:packages` and does not run it: it
+opens a browser, so run it yourself. It never reads, prints or stores the
+token: the line names a variable, and each install gets the token for that
+command alone.
+
 The keys go in your own Herdr `config.toml` (`prefix+a` and `prefix+shift+a`
 are free in the defaults), then `prefix+shift+r` reloads it:
 
