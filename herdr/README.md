@@ -42,7 +42,9 @@ Then, every minute, it:
 
    A round that starts a session updates `0xc0` first, once: a session
    loads the plugin on disk when it starts, and Claude Code's own update
-   reaches only the next session (#124).
+   reaches only the next session (#124). Autopilots take turns at it
+   under a lock in `~/.cache/0xc0/`, and skip the marketplace update when
+   another did it under two minutes ago (#132).
 
    Auto mode lets the session work unattended: a classifier approves
    routine commands and blocks risky ones, and the repo's `deny` rules
