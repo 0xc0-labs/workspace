@@ -76,6 +76,7 @@ query($owner: String!, $name: String!) {
         projectItems(first: 5) {
           nodes {
             project { number }
+            updatedAt
             status: fieldValueByName(name: "Status") {
               ... on ProjectV2ItemFieldSingleSelectValue { name }
             }
@@ -143,8 +144,8 @@ def autopilot_tab(name):
 
 
 def ready(repo):
-    """The repo's issues a session may take, most urgent first; None when the
-    API budget is too low to look."""
+    """The repo's issues a session may take, most urgent first, as (number, time
+    its board item last changed); None when the API budget is too low to look."""
     out = run("mise", "exec", "--", "gh", "api", "graphql",
               "-f", f"query={QUERY}", "-f", f"owner={ORG}", "-f", f"name={repo}",
               cwd=ROOT)
@@ -162,8 +163,8 @@ def ready(repo):
             status = (item["status"] or {}).get("name")
             if item["project"]["number"] == BOARD and status == "Ready":
                 priority = PRIORITY.get((item["priority"] or {}).get("name"), 9)
-                found.append((priority, issue["number"]))
-    return [n for _, n in sorted(found)]
+                found.append((priority, issue["number"], item["updatedAt"]))
+    return [(n, at) for _, n, at in sorted(found)]
 
 
 def last_line(repo, n, pane):
@@ -304,11 +305,17 @@ def launch(d, repo, ws, session, n, dry):
     return True
 
 
+def now_utc():
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
 def round_(d, repo, name, launched, dry):
     """One round; True when nothing is left: no session tab, and nothing Ready
-    on the board. An issue already started and left Ready counts as Ready: its
-    session may have stopped, and only turning the pilot off and on starts it
-    again, so the pilot stays on and says so."""
+    on the board. `launched` maps each issue started to when its session ended
+    (None while it runs). An issue still Ready counts as Ready, but is started
+    again only when its board item changed after that end (#164): it went back
+    to Ready, not the same block again. The comparison uses the `updatedAt` the
+    round's board read already returns, so it costs no API call."""
     ws = workspace(name)
     if ws is None and not dry:
         raise Failed(f"no Herdr workspace named {name}")
@@ -322,25 +329,38 @@ def round_(d, repo, name, launched, dry):
         n, agent = int(m.group(1)), agents.get(tab["tab_id"])
         if agent is not None and not agent.get("name") and not dry:
             subprocess.run([HERDR, "agent", "rename", agent["pane_id"], tab["label"]], capture_output=True)
-        if not finish(d, repo, tab["label"], n, tab, agent, panes.get(tab["tab_id"]), dry):
+        if finish(d, repo, tab["label"], n, tab, agent, panes.get(tab["tab_id"]), dry):
+            launched[n] = now_utc()
+        else:
             busy.add(n)
+    for n in launched:
+        if n not in busy and launched[n] is None:
+            launched[n] = now_utc()
     free = slots(repo) - len(busy)
     if free <= 0:
         return False
     found = ready(repo)
     if found is None:
         return False
-    todo = [n for n in found if n not in busy and n not in launched][:free]
-    left = [n for n in found if n in launched and n not in busy]
+    todo, left = [], []
+    for n, changed in found:
+        if n in busy:
+            continue
+        if n not in launched or changed > launched[n]:
+            todo.append(n)
+        else:
+            left.append(n)
+    todo = todo[:free]
     if left and not todo:
-        log(f"{repo}: waiting, started before and still Ready: " + ", ".join(f"#{n}" for n in left))
+        log(f"{repo}: waiting, started before and unchanged since its session ended: "
+            + ", ".join(f"#{n}" for n in left))
     if todo and dry:
         log(f"{repo}: would update 0xc0")
     elif todo:
         update_plugin(d)
     for n in todo:
         if launch(d, repo, ws, f"{name}-{n}", n, dry):
-            launched.add(n)
+            launched[n] = None
     return not busy and not found
 
 
@@ -516,7 +536,7 @@ def restart_if_changed(seen, launched):
         log(f"autopilot code changed but cannot be loaded, keeping the running one: {e}")
         return now
     log("autopilot code changed; restarting")
-    os.environ[LAUNCHED_ENV] = ",".join(str(n) for n in sorted(launched))
+    os.environ[LAUNCHED_ENV] = ",".join(f"{n}={at or ''}" for n, at in sorted(launched.items()))
     os.execv(sys.executable, [sys.executable, str(SCRIPT), *sys.argv[1:]])
 
 
@@ -528,7 +548,10 @@ def loop(d, dry):
         + f", {slots(repo)} at a time")
     if not dry and not restarted:
         prepare(d)
-    launched = {int(n) for n in carried.split(",") if n}
+    launched = {}
+    for entry in filter(None, carried.split(",")):
+        n, _, at = entry.partition("=")
+        launched[int(n)] = at or None
     seen = fingerprint()
     while True:
         done = False
