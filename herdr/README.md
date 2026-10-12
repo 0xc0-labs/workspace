@@ -12,9 +12,20 @@ tab and worktree, and turns itself off when nothing is left
 
 `bin/autopilot start <repo>`, or picking a repo from the key, gives the
 repo's Herdr workspace an `autopilot` tab running `bin/autopilot run <repo>`,
-which logs a line for everything it does. It first updates the repo's `0xc0`
-plugin, which Claude Code would otherwise update only after a session had
-started on the old one. Then, every minute, it:
+which logs a line for everything it does. It first gets the repo's clone
+ready, as `bin/autopilot prepare <repo>` does:
+
+- it clones the repo into the workspace if it is missing. The clone stays:
+  its path holds every worktree session's plugin records, memory and
+  approvals;
+- it moves the clone to an up-to-date `main`, from a branch origin no longer
+  has and with nothing uncommitted. A branch origin still has, or uncommitted
+  work, is someone's: it leaves it and says so;
+- it installs the plugins the repo enables that have no record for its path,
+  and updates `0xc0`, which Claude Code would otherwise update only after a
+  session had started on the old one.
+
+Then, every minute, it:
 
 1. closes the tab of each session that printed its last line,
    `work-issue: done <repo>#<n>` or `work-issue: stopped <repo>#<n>: <reason>`,
@@ -86,10 +97,10 @@ session by it.
 ## Setting it up, once per machine
 
 `bootstrap.sh` links the plugin in place, so a change here reaches Herdr
-with no reinstall. It installs each repo's enabled Claude Code plugins for
-its path, which its worktrees' sessions need too. It has mise trust every
-config under `~/git/github/0xc0-homelab/`, so a new worktree's `mise.toml`
-asks for no `mise trust`, and creates `.worktrees/`.
+with no reinstall. It has mise trust every config under
+`~/git/github/0xc0-homelab/`, so a new worktree's `mise.toml` asks for no
+`mise trust`, creates `.worktrees/`, and runs `bin/autopilot prepare` for
+every org repo and for the workspace.
 
 The keys go in your own Herdr `config.toml` (`prefix+a` and `prefix+shift+a`
 are free in the defaults), then `prefix+shift+r` reloads it:

@@ -2,11 +2,16 @@
 """A repo's autopilot: works its Ready issues, one fresh Claude Code session
 per issue, each in its own tab and worktree (README.md, Autopilot).
 
-  autopilot run <dir> [--dry-run]   the loop, in the repo's `autopilot` tab;
+  autopilot run <repo> [--dry-run]  the loop, in the repo's `autopilot` tab;
                                     --dry-run prints one round and changes nothing
-  autopilot start <dir>             turns it on, if it is off
-  autopilot toggle <dir>            turns it on or off
-  autopilot state <dir>             prints on or off
+  autopilot start <repo>            turns it on, if it is off
+  autopilot toggle <repo>           turns it on or off
+  autopilot state <repo>            prints on or off
+  autopilot prepare <repo>          clones the repo if missing, puts it on an
+                                    up-to-date main, installs its plugins;
+                                    `.` for the workspace's plugins only
+
+<repo> is the repo's directory in the workspace, or its path.
 
 Every minute, in the Herdr workspace named after the repo's session, it
 closes the tab of each session that printed its last line, and starts one
@@ -268,16 +273,58 @@ def round_(d, repo, name, launched, dry):
     return not busy and not todo
 
 
-def update_plugin(d):
-    """Claude Code updates a repo's plugin only after a session has started,
-    for the next one (CLAUDE.md, Claude Code plugins; #114): the sessions
-    would run the work-issue installed before the last merge."""
-    settings = d / ".claude" / "settings.json"
-    before = settings.read_text()
-    for args in (["marketplace", "update", "0xc0-labs"], ["update", "0xc0@0xc0-labs"]):
+def prepare(d):
+    """Gets the clone ready for its sessions. It stays at its path, which
+    holds every worktree session's plugin records, memory and approvals."""
+    if d != ROOT:
+        if not (d / ".git").is_dir():
+            log(f"{d.name}: cloning {ORG}/{d.name}")
+            run("mise", "exec", "--", "gh", "repo", "clone", f"{ORG}/{d.name}", str(d), cwd=ROOT)
+        to_main(d)
+    plugins(d)
+
+
+def to_main(d):
+    """Puts the clone on an up-to-date main, unless a branch origin still has,
+    or uncommitted work, says someone works in it."""
+    git(d, "fetch", "--prune", "--quiet", "origin")
+    branch = git(d, "branch", "--show-current").stdout.strip()
+    if branch != "main":
+        track = git(d, "for-each-ref", "--format=%(upstream:track)", f"refs/heads/{branch}").stdout.strip()
+        if not branch or track != "[gone]":
+            log(f"{d.name}: clone left on {branch or 'a detached HEAD'}")
+            return
+        if git(d, "status", "--porcelain").stdout.strip():
+            log(f"{d.name}: clone left on {branch}, it has uncommitted changes")
+            return
+        p = git(d, "switch", "--quiet", "main")
+        if p.returncode:
+            log(f"{d.name}: clone left on {branch}: {p.stderr.strip()}")
+            return
+    p = git(d, "pull", "--ff-only", "--quiet")
+    if p.returncode:
+        log(f"{d.name}: main not updated: {p.stderr.strip()}")
+
+
+def plugins(d):
+    """Installs the plugins the repo enables that have no record for its path
+    (#106), and updates 0xc0, which Claude Code would update only after a
+    session had started on the old one (#114)."""
+    def claude(*args):
         p = subprocess.run(["claude", "plugin", *args], cwd=d, capture_output=True, text=True)
         if p.returncode:
-            log(f"claude plugin {' '.join(args)}: {(p.stderr or p.stdout).strip()}")
+            log(f"{d.name}: claude plugin {' '.join(args)}: {(p.stderr or p.stdout).strip()}")
+
+    settings = d / ".claude" / "settings.json"
+    before = settings.read_text()
+    installed = json.loads(run("claude", "plugin", "list", "--json", cwd=d))
+    for plugin, on in json.loads(before).get("enabledPlugins", {}).items():
+        if on and not any(i["id"] == plugin and (i.get("scope") == "user" or i.get("projectPath") == str(d))
+                          for i in installed):
+            log(f"{d.name}: installing {plugin}")
+            claude("install", plugin, "--scope", "local")
+    claude("marketplace", "update", "0xc0-labs")
+    claude("update", "0xc0@0xc0-labs")
     after = settings.read_text()
     if after != before and json.loads(after) == json.loads(before):
         settings.write_text(before)  # a project-scope update rewrites it with its keys reordered
@@ -287,7 +334,7 @@ def loop(d, dry):
     repo, name = d.name, session_name(d.name)
     log(f"{repo}: " + ("dry run" if dry else "autopilot on") + f", {slots(repo)} at a time")
     if not dry:
-        update_plugin(d)
+        prepare(d)
     launched = set()
     while True:
         done = False
@@ -326,12 +373,13 @@ def turn_on(d):
     repo, name = d.name, session_name(d.name)
     command = f"{shlex.quote(str(Path(__file__).resolve()))} run {shlex.quote(str(d))}"
     env = ["--env", f"HERDR_BIN_PATH={HERDR}"]
+    cwd = str(d if d.is_dir() else ROOT)  # run clones a repo that is not here yet
     ws = workspace(name)
     if ws:
-        pane = herdr("tab", "create", "--workspace", ws, "--cwd", str(d),
+        pane = herdr("tab", "create", "--workspace", ws, "--cwd", cwd,
                      "--label", TAB, "--no-focus", *env)["root_pane"]["pane_id"]
     else:
-        created = herdr("workspace", "create", "--cwd", str(d), "--label", name, "--no-focus", *env)
+        created = herdr("workspace", "create", "--cwd", cwd, "--label", name, "--no-focus", *env)
         herdr("tab", "rename", created["tab"]["tab_id"], TAB)
         pane = created["root_pane"]["pane_id"]
     run(HERDR, "pane", "run", pane, command)  # prints nothing on success, unlike the rest
@@ -339,12 +387,15 @@ def turn_on(d):
 
 
 def main(argv):
-    if len(argv) < 2 or argv[0] not in ("run", "start", "toggle", "state"):
+    if len(argv) < 2 or argv[0] not in ("run", "start", "toggle", "state", "prepare"):
         sys.exit(__doc__.strip().split("\n\n")[1])
-    d = Path(argv[1]).resolve()
-    if not (d / ".git").is_dir() or d.parent != ROOT:
+    d = Path(os.path.normpath(ROOT / argv[1]))
+    if not (d.parent == ROOT and re.fullmatch(r"[A-Za-z0-9._-]+", d.name)
+            or argv[0] == "prepare" and d == ROOT):
         sys.exit(f"autopilot: {d} is not a repo of the workspace")
-    if argv[0] == "run":
+    if argv[0] == "prepare":
+        prepare(d)
+    elif argv[0] == "run":
         loop(d, "--dry-run" in argv[2:])
     elif argv[0] == "start":
         start(d)

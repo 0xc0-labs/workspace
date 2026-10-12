@@ -1,56 +1,29 @@
 #!/usr/bin/env bash
-# Clones (or updates) the org repos inside the workspace, and sets up what the
-# sessions need on this machine (herdr/README.md).
+# Sets up this machine for the workspace's sessions (herdr/README.md), and
+# gets every org repo's clone ready: the same step an autopilot takes for its
+# repo when it starts.
 set -euo pipefail
 cd "$(dirname "$0")"
 
-ORG=0xc0-labs
-
-clone() {  # $1 = repo name, $2 = local directory
-  if [ -d "$2/.git" ]; then
-    echo "==> $2: pull"
-    git -C "$2" pull --ff-only
-  else
-    echo "==> $2: clone"
-    gh repo clone "$ORG/$1" "$2"
-  fi
-}
-
-clone .github        .github
-clone claude-config  claude-config
-clone infrastructure infrastructure
-clone gitops         gitops
-clone vault          vault
-clone offby1.cc      offby1.cc
-clone payload        payload
-clone artistlabco.com artistlabco.com
-
-# Claude Code loads a repo's enabled plugins only once they are installed
-# for its path; a session in one of its worktrees uses that record
-# (workspace#106). Local scope leaves the tracked settings untouched.
-installed="$(claude plugin list --json)"
-for dir in . .github */; do
-  dir="$(cd "$dir" && pwd)"
-  [ -f "$dir/.claude/settings.json" ] || continue
-  for plugin in $(jq -r '.enabledPlugins // {} | to_entries[] | select(.value) | .key' "$dir/.claude/settings.json"); do
-    jq -e --arg id "$plugin" --arg path "$dir" \
-      'any(.[]; .id == $id and (.scope == "user" or .projectPath == $path))' \
-      <<<"$installed" >/dev/null && continue
-    echo "==> $(basename "$dir"): install $plugin"
-    (cd "$dir" && claude plugin install "$plugin" --scope local)
-  done
-done
-
-echo "==> .worktrees"
-mkdir -p .worktrees
-
 # Every session's worktree has its own mise.toml, which mise would ask to
-# trust one by one.
+# trust one by one. First, so the workspace's own tools run below.
 org="$(cd .. && pwd)"
 echo "==> mise: trust $org"
 mise settings get trusted_config_paths | grep -qF "\"$org\"" ||
   mise settings add trusted_config_paths "$org"
 
+echo "==> .worktrees"
+mkdir -p .worktrees
+
 echo "==> herdr: link the plugin"
 herdr plugin list | grep -qF "local:$PWD/herdr]" ||
   herdr plugin link "$PWD/herdr"
+
+# Each clone: cloned if missing, on an up-to-date main unless someone works
+# in it, with its plugins installed for its path (workspace#106, #115).
+for repo in .github claude-config infrastructure gitops vault offby1.cc payload artistlabco.com; do
+  echo "==> $repo"
+  herdr/bin/autopilot prepare "$repo"
+done
+echo "==> workspace: plugins"
+herdr/bin/autopilot prepare .
