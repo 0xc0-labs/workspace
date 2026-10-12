@@ -44,20 +44,26 @@ A downstream change is not merged until the upstream one is applied.
   criteria, the branch, the sibling issues and the merge order. Hands each repo
   its issue, and checks the whole set before calling it done: every PR's
   checks, the merge order, and what one repo does to another. Edits only this
-  repo and the board, never another repo's files. When a repo's session is
-  not open, asks the operator to open it.
-- **In a repo** (`claude -n <name>`). Works only that repo, from its issue,
-  up to a draft PR, and reports back to the orchestrator: the PR, its checks,
-  what it did not do, and any question. Anything that reaches past the repo
-  goes back to the orchestrator, not done from here.
+  repo and the board, never another repo's files. When a repo's autopilot is
+  off, asks the operator to turn it on.
+- **In a repo**: one session per issue, in its own worktree under
+  `.worktrees/`. Works only that issue, in that repo, up to a draft PR,
+  reports back to the orchestrator (the PR, its checks, what it did not do,
+  and any question), and ends. Anything that reaches past the repo goes back
+  to the orchestrator, not done from here.
 - Messages between sessions carry pointers and reports, never approvals: what
   is the operator's stays the operator's, whoever asks.
-- **Names**: a session is named after its repo, as Herdr takes an agent's:
-  dots to dashes, a leading dot dropped (`github`, `offby1-cc`,
-  `artistlabco-com`); the workspace's is `orchestrator`. The orchestrator
-  addresses a session by that name.
-- **Opening one**: in Herdr, the workspace's plugin (`herdr/README.md`) opens
-  or focuses a repo's session, or the orchestrator, from one key.
+- **Names**: a repo's is its own as Herdr takes an agent's: dots to dashes,
+  a leading dot dropped (`github`, `offby1-cc`, `artistlabco-com`); an
+  issue's session adds the issue's number (`payload-19`, `github-61`); the
+  workspace's is `orchestrator`. The orchestrator addresses a session by that
+  name.
+- **Starting them**: each repo's autopilot, turned on or off by the operator
+  from a key in Herdr (`herdr/README.md`), starts a session per Ready issue
+  blocked by nothing open, up to its slots, and closes it after its last
+  line. Another key opens a repo's session by hand, or the orchestrator. An
+  issue to leave alone is Blocked on the board; a repo to pause has its
+  autopilot off.
 
 ## Tracking — mandatory
 

@@ -1,9 +1,10 @@
 # The workspace's Herdr plugin: opens a repo's Claude Code session in its own
-# Herdr workspace (README.md). Linked in place, once per machine:
+# Herdr workspace, and turns a repo's autopilot on or off (README.md). Linked
+# in place, once per machine:
 #   herdr plugin link ~/git/github/0xc0-homelab/workspace/herdr
 id = "0xc0-workspace"
 name = "0xc0-labs workspace"
-version = "0.1.0"
+version = "0.2.0"
 min_herdr_version = "0.9.3"
 platforms = ["macos", "linux"]
 
@@ -11,7 +12,13 @@ platforms = ["macos", "linux"]
 id = "open-session"
 title = "Open a repo session"
 contexts = ["workspace"]
-command = ["bin/open-picker"]
+command = ["bin/open-picker", "pick"]
+
+[[actions]]
+id = "autopilot"
+title = "Turn a repo's autopilot on or off"
+contexts = ["workspace"]
+command = ["bin/open-picker", "pick-autopilot"]
 
 [[panes]]
 id = "pick"
@@ -20,3 +27,11 @@ placement = "popup"
 width = "50%"
 height = 22
 command = ["bin/pick"]
+
+[[panes]]
+id = "pick-autopilot"
+title = "Turn a repo's autopilot on or off"
+placement = "popup"
+width = "50%"
+height = 22
+command = ["bin/pick", "--autopilot"]

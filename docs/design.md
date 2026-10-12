@@ -15,7 +15,7 @@ is the rule in `CLAUDE.md`, Documentation.
 | [`design/platform.md`](design/platform.md) | The stack: the node and its RAID, the cluster, ArgoCD, Vault, the ingress and WAF, observability, storage (Longhorn, R2), email, the data services (MariaDB, PostgreSQL), Mautic and Payload; the templates |
 | [`design/secrets.md`](design/secrets.md) | Where secrets live, how CI and the cluster read them, who writes them, what stays outside Vault |
 | [`design/delivery.md`](design/delivery.md) | Repos and their policies; how an application ships: rc and release, promotion, staging, migrations, frontends, observability, private images, the versioned contract, CI order gates, tests, Renovate |
-| [`design/how-we-work.md`](design/how-we-work.md) | The orchestrator and the repo sessions, plugins and permissions, what stays the operator's |
+| [`design/how-we-work.md`](design/how-we-work.md) | The orchestrator and the repo sessions, one per issue with its autopilot, plugins and permissions, what stays the operator's |
 | [`discarded.md`](discarded.md) | What was considered and turned down, and why: not proposed again |
 | [`accepted-risks.md`](accepted-risks.md) | The risks taken knowingly |
 
