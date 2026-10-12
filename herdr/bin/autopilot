@@ -12,8 +12,8 @@ Every minute, in the Herdr workspace named after the repo's session, it
 closes the tab of each session that printed its last line, and starts one
 session per free slot:
 
-  claude --settings .worktrees/.hooks.json -n <session>-<n> -w <session>-<n> \
-    "/0xc0:work-issue <repo>#<n>"
+  claude --permission-mode auto --settings .worktrees/.hooks.json \
+    -n <session>-<n> -w <session>-<n> "/0xc0:work-issue <repo>#<n>"
 
 It never closes a session that is working or waiting on the operator, and
 turns itself off once no session runs and nothing is Ready to start.
@@ -191,8 +191,7 @@ def finish(d, repo, session, n, tab, agent, dry):
     else:
         herdr("tab", "close", tab["tab_id"])
         log(f"{repo}#{n}: {reason}; tab closed")
-    if agent is not None:
-        clean_up(d, session, dry)
+    clean_up(d, session, dry)
     return True
 
 
@@ -215,8 +214,8 @@ def launch(d, repo, ws, session, n, dry):
     if (WORKTREES / session).exists():
         log(f"{repo}#{n}: not started, its worktree was kept: {WORKTREES / session}")
         return
-    args = ["--settings", str(WORKTREES / ".hooks.json"), "-n", session, "-w", session,
-            f"/0xc0:work-issue {repo}#{n}"]
+    args = ["--permission-mode", "auto", "--settings", str(WORKTREES / ".hooks.json"),
+            "-n", session, "-w", session, f"/0xc0:work-issue {repo}#{n}"]
     if dry:
         log(f"{repo}#{n}: would start, in {d}: {shlex.join(['claude', *args])}")
         return

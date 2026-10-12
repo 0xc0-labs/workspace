@@ -63,6 +63,11 @@ works as above.
   (`payload-19`, `github-61`). Given an issue, `work-issue` works that one and
   ends, its last line `work-issue: done <repo>#<n>`, or `stopped` with the
   reason.
+- **Unattended, up to a draft PR.** It runs in auto mode
+  (`--permission-mode auto`; operator decision, 2026-10-12; workspace#111):
+  a classifier approves routine commands and blocks risky ones, and the
+  repo's `deny` rules still hold (no merge, no ready, no apply). The repo's
+  allow list alone stopped it at every new command.
 - **Its own worktree.** The `0xc0` plugin's worktree scripts, which the
   autopilot passes as the session's hooks, place it beside the repos, in the
   workspace's `.worktrees/<name>-<n>/`, detached at `origin/main`. Claude
