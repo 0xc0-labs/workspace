@@ -268,9 +268,26 @@ def round_(d, repo, name, launched, dry):
     return not busy and not todo
 
 
+def update_plugin(d):
+    """Claude Code updates a repo's plugin only after a session has started,
+    for the next one (CLAUDE.md, Claude Code plugins; #114): the sessions
+    would run the work-issue installed before the last merge."""
+    settings = d / ".claude" / "settings.json"
+    before = settings.read_text()
+    for args in (["marketplace", "update", "0xc0-labs"], ["update", "0xc0@0xc0-labs"]):
+        p = subprocess.run(["claude", "plugin", *args], cwd=d, capture_output=True, text=True)
+        if p.returncode:
+            log(f"claude plugin {' '.join(args)}: {(p.stderr or p.stdout).strip()}")
+    after = settings.read_text()
+    if after != before and json.loads(after) == json.loads(before):
+        settings.write_text(before)  # a project-scope update rewrites it with its keys reordered
+
+
 def loop(d, dry):
     repo, name = d.name, session_name(d.name)
     log(f"{repo}: " + ("dry run" if dry else "autopilot on") + f", {slots(repo)} at a time")
+    if not dry:
+        update_plugin(d)
     launched = set()
     while True:
         done = False
