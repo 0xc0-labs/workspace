@@ -12,7 +12,9 @@ tab and worktree, and turns itself off when nothing is left
 
 `bin/autopilot start <repo>`, or picking a repo from the key, gives the
 repo's Herdr workspace an `autopilot` tab running `bin/autopilot run <repo>`,
-which logs a line for everything it does. Every minute it:
+which logs a line for everything it does. It first updates the repo's `0xc0`
+plugin, which Claude Code would otherwise update only after a session had
+started on the old one. Then, every minute, it:
 
 1. closes the tab of each session that printed its last line,
    `work-issue: done <repo>#<n>` or `work-issue: stopped <repo>#<n>: <reason>`,
