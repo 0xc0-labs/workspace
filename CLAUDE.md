@@ -304,6 +304,10 @@ Where a document belongs (operator decision, 2026-10-12; workspace#85):
   in `infrastructure/docs/zones.md`, which are off limits.
 - What is discarded stays discarded. The list and the reasons are in
   `docs/discarded.md`. Do not reopen it unless the human explicitly asks.
+- **Semgrep runs in CI only.** A session never runs it on the machine: it
+  reads the findings of the `semgrep / scan` job, in its job summary or with
+  `gh run view <id> --log` (operator decision, 2026-10-12; workspace#155:
+  seven sessions scanning at once saturated the machine's CPU).
 
 ## Status
 
