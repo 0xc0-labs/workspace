@@ -142,13 +142,16 @@ added by tooling: no generated-by footer, same rule as commits.
 ## Autonomy
 
 Without asking: create branches, commit, push a branch, open issues, open a
-**draft** PR, and add items to the project board.
+**draft** PR, mark it ready once it can be merged (its checks green, its
+review done, nothing left to do), and add items to the project board. A
+draft is work in progress; a ready PR can be merged (workspace#119).
 
-Ask first: marking a PR ready for review, merging, creating, renaming or
-deleting a repo, changing organization settings, and anything that applies
-infrastructure. The apply is launched by the human, always.
+Ask first: merging, creating, renaming or deleting a repo, changing
+organization settings, and anything that applies infrastructure. The apply
+is launched by the human, always.
 
-The rule behind it: work freely while nothing is presented as final.
+The rule behind it: work freely while nothing is final: a ready PR is a
+proposal, and only the merge makes it final.
 
 ## Git identity
 

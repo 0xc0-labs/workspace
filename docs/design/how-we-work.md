@@ -113,6 +113,15 @@ another repo's plan needs, a setting a repo inherits from the workspace, a
 hook a session lacks. Each of those slipped through on 2026-10-10 while every
 PR on its own was green.
 
+**A ready PR can be merged** (operator decision, 2026-10-12; workspace#119).
+A session opens its PR as a draft, to see its checks while it works. It
+marks the PR ready once its checks are green, its review is done and nothing
+is left to do. A PR waiting on a `.claude/` patch the operator commits stays
+a draft. The orchestrator reviews every ready PR. On a finding, it puts the
+PR back to draft with a comment and sets the issue Ready again, so a new
+session continues the same branch. So the operator merges what is ready, in
+the merge order the orchestrator gave.
+
 **Plugins and permissions by kind of repo.** Every repo enables `0xc0` in its
 own `.claude/settings.json`. The infrastructure repos (`.github`,
 `infrastructure`, `gitops`, `vault`, `claude-config`) work with `0xc0`'s
@@ -140,9 +149,8 @@ its feature, in the same PR (operator decision, 2026-10-12; workspace#98):
 gentle-ai means it to be recoverable, and commits its own; Engram's copy is
 on one laptop.
 
-**What stays the operator's**: marking a PR ready, merging, every apply,
-writing and rotating secrets, which repos' sessions are open, and pausing
-a repo's autopilot.
+**What stays the operator's**: merging, every apply, writing and rotating
+secrets, which repos' sessions are open, and pausing a repo's autopilot.
 
 **Cost.** Every session draws on the operator's Claude subscription, and
 several at work spend it faster than one: an autopilot's slots bound how
