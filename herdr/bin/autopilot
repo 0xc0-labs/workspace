@@ -23,6 +23,7 @@ session per free slot:
 It never closes a session that is working or waiting on the operator, and
 turns itself off once no session runs and nothing is Ready to start.
 """
+import fcntl
 import json
 import os
 import re
@@ -43,6 +44,9 @@ CONF = ROOT / "herdr" / "autopilot.conf"
 HOOKS = ROOT / "claude-config" / "plugins" / "0xc0" / "hooks"
 PRIORITY = {"P1": 1, "P2": 2, "P3": 3}
 LOW_BUDGET = 500
+CACHE = Path.home() / ".cache" / "0xc0"
+MARKETPLACE_STAMP = CACHE / "marketplace-updated"
+MARKETPLACE_FRESH = 120
 
 QUERY = """
 query($owner: String!, $name: String!) {
@@ -316,6 +320,7 @@ def claude_plugin(d, *args):
     p = subprocess.run(["claude", "plugin", *args], cwd=d, capture_output=True, text=True)
     if p.returncode:
         log(f"{d.name}: claude plugin {' '.join(args)}: {(p.stderr or p.stdout).strip()}")
+    return p.returncode == 0
 
 
 def plugins(d):
@@ -336,12 +341,24 @@ def update_plugin(d):
     started on the old one (#114): a session loads the install on disk when
     it starts (#124)."""
     settings = d / ".claude" / "settings.json"
-    before = settings.read_text()
-    claude_plugin(d, "marketplace", "update", "0xc0-labs")
-    claude_plugin(d, "update", "0xc0@0xc0-labs")
-    after = settings.read_text()
-    if after != before and json.loads(after) == json.loads(before):
-        settings.write_text(before)  # a project-scope update rewrites it with its keys reordered
+    CACHE.mkdir(parents=True, exist_ok=True)
+    # Several autopilots share one marketplace clone, ~/.claude/plugins/marketplaces/0xc0-labs, and concurrent updates break it (#132).
+    with open(CACHE / "plugin-update.lock", "a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        before = settings.read_text()
+        if not marketplace_fresh() and claude_plugin(d, "marketplace", "update", "0xc0-labs"):
+            MARKETPLACE_STAMP.touch()
+        claude_plugin(d, "update", "0xc0@0xc0-labs")
+        after = settings.read_text()
+        if after != before and json.loads(after) == json.loads(before):
+            settings.write_text(before)  # a project-scope update rewrites it with its keys reordered
+
+
+def marketplace_fresh():
+    try:
+        return time.time() - MARKETPLACE_STAMP.stat().st_mtime < MARKETPLACE_FRESH
+    except FileNotFoundError:
+        return False
 
 
 def loop(d, dry):
