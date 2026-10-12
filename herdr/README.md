@@ -88,8 +88,12 @@ After a round with no session tab and nothing Ready on the board, it closes
 its own tab. The board is read fresh in that round, after the finished
 sessions' tabs are closed, and an issue the pilot already started that is
 still Ready counts as Ready: its session may have stopped, so the pilot stays
-on and logs `waiting, started before and still Ready`, instead of going quiet
-beside it (#159). A round that could not read the board, on a low API budget,
+on and logs `waiting, started before and unchanged since its session ended`,
+instead of going quiet beside it (#159). It starts such an issue again only
+when its board item changed after its session ended (the item's `updatedAt`,
+already in the round's board read, against the time the pilot saw the session
+end): an issue set Ready again is relaunched without toggling the pilot, and
+one whose session stopped on a block nobody touched is not (#164). A round that could not read the board, on a low API budget,
 does not count.
 
 Between rounds, it compares `bin/autopilot` and `autopilot.conf` with what it
