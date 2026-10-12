@@ -11,7 +11,8 @@ Every minute, in the Herdr workspace named after the repo's session, it
 closes the tab of each session that printed its last line, and starts one
 session per free slot:
 
-  claude -n <session>-<n> -w <session>-<n> "/0xc0:work-issue <repo>#<n>"
+  claude --settings .worktrees/.hooks.json -n <session>-<n> -w <session>-<n> \
+    "/0xc0:work-issue <repo>#<n>"
 
 It never closes a session that is working or waiting on the operator.
 """
@@ -32,6 +33,7 @@ HERDR = os.environ.get("HERDR_BIN_PATH", "herdr")
 ROOT = Path(__file__).resolve().parents[2]
 WORKTREES = ROOT / ".worktrees"
 CONF = ROOT / "herdr" / "autopilot.conf"
+HOOKS = ROOT / "claude-config" / "plugins" / "0xc0" / "hooks"
 PRIORITY = {"P1": 1, "P2": 2, "P3": 3}
 LOW_BUDGET = 500
 
@@ -191,18 +193,32 @@ def finish(d, repo, session, n, tab, agent, dry):
     return True
 
 
+def worktree_settings():
+    """Claude Code runs a plugin's WorktreeCreate too late for `-w`, so the
+    hooks that place the worktree in .worktrees/ come in through --settings."""
+    def hook(script):
+        return [{"hooks": [{"type": "command", "command": shlex.quote(str(HOOKS / script))}]}]
+
+    if not (HOOKS / "worktree-create.sh").is_file():
+        raise Failed(f"no worktree hooks in {HOOKS}: is claude-config on main?")
+    WORKTREES.mkdir(exist_ok=True)
+    (WORKTREES / ".hooks.json").write_text(json.dumps({"hooks": {
+        "WorktreeCreate": hook("worktree-create.sh"),
+        "WorktreeRemove": hook("worktree-remove.sh"),
+    }}, indent=2) + "\n")
+
+
 def launch(d, repo, ws, session, n, dry):
-    prompt = f"/0xc0:work-issue {repo}#{n}"
-    wt = WORKTREES / session
-    if wt.is_dir():
-        cwd, args = wt, ["-n", session, prompt]
-    else:
-        cwd, args = d, ["-n", session, "-w", session, prompt]
-    command = ["claude", *args]
-    if dry:
-        log(f"{repo}#{n}: would start, in {cwd}: {shlex.join(command)}")
+    if (WORKTREES / session).exists():
+        log(f"{repo}#{n}: not started, its worktree was kept: {WORKTREES / session}")
         return
-    pane = herdr("tab", "create", "--workspace", ws, "--cwd", str(cwd),
+    args = ["--settings", str(WORKTREES / ".hooks.json"), "-n", session, "-w", session,
+            f"/0xc0:work-issue {repo}#{n}"]
+    if dry:
+        log(f"{repo}#{n}: would start, in {d}: {shlex.join(['claude', *args])}")
+        return
+    worktree_settings()
+    pane = herdr("tab", "create", "--workspace", ws, "--cwd", str(d),
                  "--label", session, "--no-focus")["root_pane"]["pane_id"]
     # A new tab's shell may not be at its prompt yet, and agent start needs it.
     for _ in range(15):
@@ -211,7 +227,7 @@ def launch(d, repo, ws, session, n, dry):
                            capture_output=True, text=True)
         if p.returncode == 0 or "agent_not_ready" in p.stderr or \
                 subprocess.run([HERDR, "agent", "get", session], capture_output=True).returncode == 0:
-            log(f"{repo}#{n}: started {session}" + (" in its kept worktree" if cwd == wt else ""))
+            log(f"{repo}#{n}: started {session}")
             return
         time.sleep(2)
     log(f"{repo}#{n}: {session} did not start: {p.stderr.strip()}")

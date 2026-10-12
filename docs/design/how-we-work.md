@@ -52,12 +52,15 @@ session works one issue and ends, its last line `work-issue: done <repo>#<n>`,
 or `stopped` with the reason.
 
 - **Its own worktree.** Each session runs in a Claude Code worktree,
-  `claude -n <name>-<n> -w <name>-<n> "/0xc0:work-issue <repo>#<n>"`, which the
-  `0xc0` plugin's `WorktreeCreate` hook places beside the repos, in the
-  workspace's `.worktrees/<name>-<n>/`, detached at `origin/main`. Claude
-  Code's default place, inside the repo, would load the repo's `CLAUDE.md`
-  twice. Sessions of one repo work side by side without touching each other's
-  files.
+  `claude -n <name>-<n> -w <name>-<n> "/0xc0:work-issue <repo>#<n>"`. The
+  `0xc0` plugin's worktree scripts, which the autopilot passes as the
+  session's hooks, place it beside the repos, in the workspace's
+  `.worktrees/<name>-<n>/`, detached at `origin/main`. Claude Code's default
+  place is inside the repo. There, Node would resolve a module missing from
+  the worktree in the primary clone's `node_modules`, and the primary clone's
+  tools would walk into every worktree. Sessions of one repo work side by side
+  without touching each other's files, and share the approvals saved in the
+  primary clone.
 - **The autopilot.** One per repo, which the operator turns on or off from a
   key; it runs in the `autopilot` tab of the repo's Herdr workspace. Every
   minute it closes the tab of each session that printed its last line, removes

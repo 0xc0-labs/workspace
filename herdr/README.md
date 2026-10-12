@@ -21,12 +21,18 @@ minute it:
    Ready issues blocked by nothing open, by priority, then number:
 
    ```sh
-   claude -n <name>-<n> -w <name>-<n> "/0xc0:work-issue <repo>#<n>"
+   claude --settings .worktrees/.hooks.json -n <name>-<n> -w <name>-<n> \
+     "/0xc0:work-issue <repo>#<n>"
    ```
 
-   The `0xc0` plugin's `WorktreeCreate` hook places the worktree at
-   `.worktrees/<name>-<n>/` in the workspace. If that worktree is still there
-   from an earlier session, the new one starts in it instead.
+   `.hooks.json`, which the autopilot writes, declares the `0xc0` plugin's
+   worktree scripts from the workspace's `claude-config` checkout as the
+   session's `WorktreeCreate` and `WorktreeRemove` hooks: they place the
+   worktree at `.worktrees/<name>-<n>/` in the workspace, detached at
+   `origin/main`. They come through `--settings` because Claude Code creates
+   a `-w` worktree before it loads the plugins' hooks. If an issue's worktree
+   is still there, kept from an earlier session, the autopilot leaves that
+   issue alone and says so.
 
 `autopilot.conf` holds each repo's slots: two in the application repos, one
 in the others. Picking the repo again, or closing the `autopilot` tab, turns
