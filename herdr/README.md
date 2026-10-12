@@ -30,8 +30,10 @@ Then, every minute, it:
 1. closes the tab of each session that printed its last line,
    `work-issue: done <repo>#<n>` or `work-issue: stopped <repo>#<n>: <reason>`,
    and removes that session's worktree if it has no uncommitted changes and
-   no commit missing from `origin`. Otherwise it keeps the worktree and says
-   so. It never closes a session that is working or waiting on the operator;
+   no commit missing from `origin`. A branch GitHub deleted when its PR
+   merged counts as on `origin` if that PR holds the worktree's last commit,
+   since a squash merge puts its commits in `main` under other SHAs (#134).
+   Otherwise it keeps the worktree and says so. It never closes a session that is working or waiting on the operator;
 2. starts one session per free slot, in a tab named after it, on the repo's
    Ready issues blocked by nothing open, by priority, then number:
 

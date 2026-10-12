@@ -168,13 +168,29 @@ def clean_up(d, session, dry):
     if git(wt, "status", "--porcelain").stdout.strip():
         log(f"{session}: worktree kept, it has uncommitted changes: {wt}")
         return
-    git(wt, "fetch", "--quiet", "origin")
+    git(wt, "fetch", "--prune", "--quiet", "origin")
     branch = git(wt, "symbolic-ref", "--quiet", "--short", "HEAD").stdout.strip()
-    if git(wt, "merge-base", "--is-ancestor", "HEAD", f"origin/{branch or 'main'}").returncode:
+    gone = bool(branch) and git(wt, "rev-parse", "--verify", "--quiet", f"refs/remotes/origin/{branch}").returncode != 0
+    if gone:
+        # A squash merge puts the branch's commits in main under other SHAs (#134).
+        try:
+            pr = json.loads(run("mise", "exec", "--", "gh", "pr", "view", branch, "--repo", f"{ORG}/{d.name}",
+                                "--json", "state,headRefOid", cwd=ROOT))
+        except (Failed, json.JSONDecodeError) as e:
+            log(f"{session}: worktree kept, {branch} is gone from origin and its PR could not be read ({e}): {wt}")
+            return
+        if pr["state"] != "MERGED":
+            log(f"{session}: worktree kept, {branch} is gone from origin and its PR is {pr['state']}: {wt}")
+            return
+        if git(wt, "merge-base", "--is-ancestor", "HEAD", pr["headRefOid"]).returncode:
+            log(f"{session}: worktree kept, {branch} has commits not in its merged PR: {wt}")
+            return
+    elif git(wt, "merge-base", "--is-ancestor", "HEAD", f"origin/{branch or 'main'}").returncode:
         log(f"{session}: worktree kept, {branch or 'HEAD'} has commits not on origin: {wt}")
         return
+    merged = ", its PR merged" if gone else ""
     if dry:
-        log(f"{session}: would remove its worktree {wt}")
+        log(f"{session}: would remove its worktree {wt}{merged}")
         return
     p = git(d, "worktree", "remove", str(wt))
     if p.returncode:
@@ -182,7 +198,7 @@ def clean_up(d, session, dry):
         return
     if branch:
         git(d, "branch", "--delete", "--force", branch)
-    log(f"{session}: worktree removed")
+    log(f"{session}: worktree removed{merged}")
 
 
 def at_shell(pane):
