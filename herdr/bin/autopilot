@@ -6,7 +6,8 @@ per issue, each in its own tab and worktree (README.md, Autopilot).
                                     --dry-run prints one round and changes nothing
   autopilot start <repo>            turns it on, if it is off
   autopilot toggle <repo>           turns it on or off
-  autopilot state <repo>            prints on or off
+  autopilot state <repo>            prints on, off, or dead (a tab whose loop
+                                    exited; `start` restarts it)
   autopilot prepare <repo>          clones the repo if missing, puts it on an
                                     up-to-date main, installs its plugins,
                                     trusts it in Claude Code; `.` for the
@@ -22,7 +23,9 @@ session per free slot:
     -n <session>-<n> -w <session>-<n> "/0xc0:work-issue <repo>#<n>"
 
 It never closes a session that is working or waiting on the operator, and
-turns itself off once no session runs and nothing is Ready to start.
+turns itself off once no session runs and a fresh read of the board shows
+nothing Ready for the repo. Between rounds it re-executes itself when its own
+code changed.
 """
 import fcntl
 import json
@@ -57,6 +60,10 @@ NEW_PROJECT = {"allowedTools": [], "mcpContextUris": [], "mcpServers": {},
                "hasTrustDialogAccepted": False, "hasClaudeMdExternalIncludesApproved": False,
                "hasClaudeMdExternalIncludesWarningShown": False}
 CONFIG_LOCK_STALE = 10
+SCRIPT = Path(__file__).resolve()
+# What the loop reads from herdr/: a change to either is picked up between rounds.
+WATCHED = (SCRIPT, CONF)
+LAUNCHED_ENV = "OXC0_AUTOPILOT_LAUNCHED"
 
 QUERY = """
 query($owner: String!, $name: String!) {
@@ -276,7 +283,9 @@ def launch(d, repo, ws, session, n, dry):
 
 def round_(d, repo, name, launched, dry):
     """One round; True when nothing is left: no session tab, and nothing Ready
-    to start."""
+    on the board. An issue already started and left Ready counts as Ready: its
+    session may have stopped, and only turning the pilot off and on starts it
+    again, so the pilot stays on and says so."""
     ws = workspace(name)
     if ws is None and not dry:
         raise Failed(f"no Herdr workspace named {name}")
@@ -299,6 +308,9 @@ def round_(d, repo, name, launched, dry):
     if found is None:
         return False
     todo = [n for n in found if n not in busy and n not in launched][:free]
+    left = [n for n in found if n in launched and n not in busy]
+    if left and not todo:
+        log(f"{repo}: waiting, started before and still Ready: " + ", ".join(f"#{n}" for n in left))
     if todo and dry:
         log(f"{repo}: would update 0xc0")
     elif todo:
@@ -306,7 +318,7 @@ def round_(d, repo, name, launched, dry):
     for n in todo:
         launch(d, repo, ws, f"{name}-{n}", n, dry)
         launched.add(n)
-    return not busy and not todo
+    return not busy and not found
 
 
 def prepare(d):
@@ -455,27 +467,62 @@ def marketplace_fresh():
         return False
 
 
+def fingerprint():
+    """The size and mtime of each watched file; a missing one reads as None."""
+    def stamp(path):
+        try:
+            st = path.stat()
+            return st.st_mtime_ns, st.st_size
+        except OSError:
+            return None
+    return [stamp(p) for p in WATCHED]
+
+
+def restart_if_changed(seen, launched):
+    """Re-executes the loop when its own code changed, between rounds, with
+    the same arguments and the issues it started carried in the environment.
+    A script that does not compile is not run: the loop keeps going on the old
+    code and looks again only when the file changes once more. Returns the
+    fingerprint to compare with next."""
+    now = fingerprint()
+    if now == seen:
+        return seen
+    try:
+        compile(SCRIPT.read_text(), str(SCRIPT), "exec")
+    except (OSError, SyntaxError, ValueError) as e:
+        log(f"autopilot code changed but cannot be loaded, keeping the running one: {e}")
+        return now
+    log("autopilot code changed; restarting")
+    os.environ[LAUNCHED_ENV] = ",".join(str(n) for n in sorted(launched))
+    os.execv(sys.executable, [sys.executable, str(SCRIPT), *sys.argv[1:]])
+
+
 def loop(d, dry):
     repo, name = d.name, session_name(d.name)
-    log(f"{repo}: " + ("dry run" if dry else "autopilot on") + f", {slots(repo)} at a time")
-    if not dry:
+    restarted = LAUNCHED_ENV in os.environ
+    carried = os.environ.pop(LAUNCHED_ENV, "")
+    log(f"{repo}: " + ("dry run" if dry else "autopilot restarted" if restarted else "autopilot on")
+        + f", {slots(repo)} at a time")
+    if not dry and not restarted:
         prepare(d)
-    launched = set()
+    launched = {int(n) for n in carried.split(",") if n}
+    seen = fingerprint()
     while True:
         done = False
         try:
             done = round_(d, repo, name, launched, dry)
-        except (Failed, json.JSONDecodeError, KeyError) as e:
+        except (Failed, OSError, json.JSONDecodeError, KeyError) as e:
             log(f"error: {e}")
         if dry:
             return
         if done:
-            log(f"{repo}: nothing Ready and no session running; autopilot off")
+            log(f"{repo}: nothing Ready on the board and no session running; autopilot off")
             tab = autopilot_tab(name)
             if tab and tab["tab_id"] == os.environ.get("HERDR_TAB_ID"):
                 herdr("tab", "close", tab["tab_id"])
             return
         time.sleep(INTERVAL)
+        seen = restart_if_changed(seen, launched)
 
 
 def toggle(d):
@@ -487,11 +534,32 @@ def toggle(d):
         turn_on(d)
 
 
+def loop_alive(name, tab):
+    """Whether the tab's pane still has the loop in front of its shell."""
+    panes = herdr("pane", "list", "--workspace", workspace(name))["panes"]
+    pane = next((p["pane_id"] for p in panes if p["tab_id"] == tab["tab_id"]), None)
+    return pane is not None and not at_shell(pane)
+
+
+def state(d):
+    """on, dead (the tab is there, the loop is not) or off."""
+    name = session_name(d.name)
+    tab = autopilot_tab(name)
+    if tab is None:
+        return "off"
+    return "on" if loop_alive(name, tab) else "dead"
+
+
 def start(d):
-    if autopilot_tab(session_name(d.name)):
+    name = session_name(d.name)
+    tab = autopilot_tab(name)
+    if tab and loop_alive(name, tab):
         print(f"{d.name}: autopilot already on")
-    else:
-        turn_on(d)
+        return
+    if tab:
+        herdr("tab", "close", tab["tab_id"])
+        print(f"{d.name}: autopilot was dead; restarting")
+    turn_on(d)
 
 
 def turn_on(d):
@@ -527,7 +595,7 @@ def main(argv):
     elif argv[0] == "toggle":
         toggle(d)
     else:
-        print("on" if autopilot_tab(session_name(d.name)) else "off")
+        print(state(d))
 
 
 if __name__ == "__main__":
