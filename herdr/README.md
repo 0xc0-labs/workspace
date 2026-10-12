@@ -56,6 +56,12 @@ Then, every minute, it:
      -n <name>-<n> -w <name>-<n> "/0xc0:work-issue <repo>#<n>"
    ```
 
+   Right before it starts a session, the autopilot moves the issue to In
+   Progress on the board (`gh project item-edit`, by the issue's URL), so the
+   claim does not depend on the session's own step (#161). If the move fails,
+   the session is not started in that round and the next retries it. The
+   `work-issue` skill keeps its own claim step for sessions started by hand.
+
    A round that starts a session updates `0xc0` first, once: a session
    loads the plugin on disk when it starts, and Claude Code's own update
    reaches only the next session (#124). Autopilots take turns at it
@@ -78,9 +84,26 @@ Then, every minute, it:
    is still there, kept from an earlier session, the autopilot leaves that
    issue alone and says so.
 
-After a round with no session tab and nothing Ready to start, it closes its
-own tab. A round that could not read the board, on a low API budget, does
-not count.
+After a round with no session tab and nothing Ready on the board, it closes
+its own tab. The board is read fresh in that round, after the finished
+sessions' tabs are closed, and an issue the pilot already started that is
+still Ready counts as Ready: its session may have stopped, so the pilot stays
+on and logs `waiting, started before and still Ready`, instead of going quiet
+beside it (#159). A round that could not read the board, on a low API budget,
+does not count.
+
+Between rounds, it compares `bin/autopilot` and `autopilot.conf` with what it
+loaded at start. When one changed, it logs `autopilot code changed;
+restarting` and re-executes itself (`os.execv`) with the same arguments, in
+the same tab: the issues it already started are carried over, `prepare` is
+not repeated, and a round in progress is never cut. A script that does not
+compile is not run: the loop keeps the old code until the file changes again.
+A pilot therefore picks a pulled change to `herdr/` up on its own, and one
+that read a deleted file no longer dies on it.
+
+`bin/autopilot state <repo>` prints `on` only when the loop is running in its
+tab, `dead` when the tab is there and the loop exited, and `off` without the
+tab. `start` closes a dead tab and opens a new one.
 
 `autopilot.conf` holds each repo's slots: two in the application repos, one
 in the others. Picking the repo again, or closing the `autopilot` tab, turns
