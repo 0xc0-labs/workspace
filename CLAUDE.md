@@ -205,8 +205,9 @@ org's hooks. From Anthropic's marketplace, only what applies (workspace#72):
 | `frontend-design` | the frontends |
 
 On a machine, Claude Code loads a repo's enabled plugins only once they are
-installed for its path, and a worktree uses its repo's record: `bootstrap.sh`
-installs whatever is missing, at local scope (workspace#106).
+installed for its path, and a worktree uses its repo's record:
+`herdr/bin/autopilot prepare`, which `bootstrap.sh` and every autopilot run,
+installs whatever is missing, at local scope (workspace#106, #115).
 
 Nothing that overlaps what is already there: `/simplify`, `/code-review` and
 `/security-review` are built in, and the app repos carry gentle-ai.
