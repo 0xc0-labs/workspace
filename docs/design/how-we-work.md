@@ -125,10 +125,13 @@ on. `/0xc0:work-issue` is the interface between that repo and the
 orchestrator: it starts from `main`, claims the issue on the board and takes
 it as the contract, opens the draft PR by the org's rules, reports back, and
 keeps its list of what a session never does (operator decision, 2026-10-11;
-workspace#68). The cost is accepted: gentle-ai's review asks the operator's
-consent in the session's tab for a change of medium or high risk, so those
-sessions are not wholly unattended, and its reviewers spend more of the
-subscription. The plugin carries no agents (operator decision, 2026-10-11;
+workspace#68). The cost is accepted: gentle-ai's reviewers spend more of the
+subscription. For a change of medium or high risk, gentle-ai asks whether to
+spend the time on a review. The question does not approve the change. A
+session the autopilot starts grants it itself, on the operator's standing
+decision (operator decision, 2026-10-12; workspace#117,
+claude-config#57). A session opened by hand asks the operator in its tab.
+Reviews are never turned off: one found three real spots in payload#29. The plugin carries no agents (operator decision, 2026-10-11;
 workspace#78): each repo's session builds and checks its own changes, and
 what a reviewer checked lives in that repo's docs (`infrastructure`'s
 `docs/zones.md`, Invariants; `gitops`' `CLAUDE.md`, Before opening a PR).
