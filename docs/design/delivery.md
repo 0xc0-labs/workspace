@@ -120,13 +120,12 @@ throwaway server themselves: PostgreSQL from conda-forge through mise
 for Linux and macOS), `initdb` in a temporary directory, no TCP port
 (`listen_addresses=''`), a Unix socket in that directory, the repo's
 migrations, and everything removed when the tests end. The same `pnpm test`
-runs on either runner and on a Mac. `node-check` only runs it, with the
+runs on GitHub's runners and on a Mac. `node-check` only runs it, with the
 tools the caller names. Not Debian's package (trixie ships 17, and 18 would
 bake a third-party repo into the runner image), not PGlite (no Payload
 adapter, and it does not behave as a server under concurrency), not a
-service container: turned down at first because the checks ran self-hosted,
-it would still tie the tests to the workflow that starts it, and to a Docker
-the self-hosted runners do not have.
+service container: it ties the tests to the workflow that starts it, where
+the same `pnpm test` must run on GitHub's runners and on a Mac.
 
 **Staging is a second environment of the same application.** In `gitops`,
 an application is one folder with one directory per environment:
