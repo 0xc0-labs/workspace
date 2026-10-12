@@ -122,6 +122,17 @@ PR back to draft with a comment and sets the issue Ready again, so a new
 session continues the same branch. So the operator merges what is ready, in
 the merge order the orchestrator gave.
 
+**Code two repos share is noticed before it is copied** (operator decision,
+2026-10-12; workspace#121). It becomes a package in `0xc0-labs/packages`,
+by the rule in [delivery](delivery.md). The orchestrator notices a candidate
+when a contract it writes says "as in repo X", or when two issues in
+different repos have the same outcome, and opens the extraction issue first.
+A repo session that finds what it needs already in another repo names the
+candidate in its report. The orchestrator, reviewing a set's PRs, notices
+code duplicated across repos. It decides by the rule and writes the reason
+on the issue, and asks the operator only when a package would change the
+design.
+
 **Plugins and permissions by kind of repo.** Every repo enables `0xc0` in its
 own `.claude/settings.json`. The infrastructure repos (`.github`,
 `infrastructure`, `gitops`, `vault`, `claude-config`) work with `0xc0`'s

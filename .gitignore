@@ -15,6 +15,9 @@
 # hook (herdr/README.md, Autopilot).
 /.worktrees/
 
+# Claude Code's own worktrees, where the orchestrator's subagents work.
+/.claude/worktrees/
+
 mise.local.toml
 
 .DS_Store

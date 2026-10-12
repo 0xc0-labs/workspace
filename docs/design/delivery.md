@@ -162,6 +162,21 @@ removes (a breaking release) only once no deployed frontend uses what goes.
 3. Later: a breaking release of the backend does not reach prod while a
    frontend in prod still depends on the previous one.
 
+**Code that two repos need alike lives once, in a versioned package**
+(operator decision, 2026-10-12; workspace#121). It is extracted when a second
+repo needs the same code, or a behaviour that must stay alike everywhere:
+observability, security headers, log format, health checks. Code that only
+looks alike but changes for different reasons, a line or two, and
+configuration stay in each repo. The packages live in one repo,
+`0xc0-labs/packages`, a directory each (`packages/<name>`). Each is published
+as `@0xc0-labs/<name>` to GitHub Packages, private, with its own version and
+its own release, through a reusable workflow in `.github`. An app pins the
+version in its `package.json`, and Renovate, once it runs, bumps it as any
+other dependency. The first is `@0xc0-labs/observability`: OpenTelemetry for
+Node and Next.js, with the resource attributes, the OTLP exporter and the
+kube-probe propagator that payload#30 wrote. Who notices a candidate, and
+who decides, is in [how we work](how-we-work.md).
+
 **Renovate keeps every repo's dependencies current.** It runs as a scheduled
 workflow in `.github`, on the self-hosted runners, with
 `0xc0-labs-renovate`'s token. A preset in `.github` holds what is common:
