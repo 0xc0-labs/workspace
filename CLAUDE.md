@@ -17,13 +17,15 @@ it too.
 | `infrastructure/`| `infrastructure`  | Packer + OpenTofu + Ansible + docs              |
 | `gitops/`        | `gitops`          | ArgoCD manifests: `bootstrap/prod/`, `platform/`, `apps/` |
 | `vault/`         | `vault`           | OpenTofu configuration of the cluster's Vault   |
+| `packages/`      | `packages`        | shared code as versioned npm packages (`@0xc0-labs/<name>`) |
 | `offby1.cc/`     | `offby1.cc`       | Next.js landing page for offby1.cc              |
 | `payload/`       | `payload`         | Payload CMS, multi-tenant backend of the fronts |
 | `artistlabco.com/` | `artistlabco.com` | the artist's site, a Payload frontend         |
 | `app-*/`         | various           | applications                                    |
 
 Dependency order: `.github` → `infrastructure` → `gitops` → `vault` →
-the applications (`offby1.cc`, `payload`, `artistlabco.com`, `app-*`).
+`packages` → the applications (`offby1.cc`, `payload`, `artistlabco.com`,
+`app-*`), which pin its packages.
 `claude-config` stands apart: nothing depends on it at deploy time.
 A downstream change is not merged until the upstream one is applied.
 
