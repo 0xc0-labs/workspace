@@ -23,9 +23,13 @@ which logs a line for everything it does. Every minute it:
    Ready issues blocked by nothing open, by priority, then number:
 
    ```sh
-   claude --settings .worktrees/.hooks.json -n <name>-<n> -w <name>-<n> \
-     "/0xc0:work-issue <repo>#<n>"
+   claude --permission-mode auto --settings .worktrees/.hooks.json \
+     -n <name>-<n> -w <name>-<n> "/0xc0:work-issue <repo>#<n>"
    ```
+
+   Auto mode lets the session work unattended: a classifier approves
+   routine commands and blocks risky ones, and the repo's `deny` rules
+   still hold.
 
    `.hooks.json`, which the autopilot writes, declares the `0xc0` plugin's
    worktree scripts from the workspace's `claude-config` checkout as the
