@@ -56,6 +56,12 @@ Then, every minute, it:
      -n <name>-<n> -w <name>-<n> "/0xc0:work-issue <repo>#<n>"
    ```
 
+   Right before it starts a session, the autopilot moves the issue to In
+   Progress on the board (`gh project item-edit`, by the issue's URL), so the
+   claim does not depend on the session's own step (#161). If the move fails,
+   the session is not started in that round and the next retries it. The
+   `work-issue` skill keeps its own claim step for sessions started by hand.
+
    A round that starts a session updates `0xc0` first, once: a session
    loads the plugin on disk when it starts, and Claude Code's own update
    reaches only the next session (#124). Autopilots take turns at it

@@ -261,15 +261,37 @@ def worktree_settings():
     }}, indent=2) + "\n")
 
 
+def claim(repo, n, dry):
+    """Moves the issue to In Progress on the board, so the claim does not
+    depend on the session's own step (#161). False when it could not."""
+    command = ["mise", "exec", "--", "gh", "project", "item-edit", str(BOARD), "--owner", ORG,
+               "--url", f"https://github.com/{ORG}/{repo}/issues/{n}",
+               "--field", "Status", "--value", "In Progress"]
+    if dry:
+        log(f"{repo}#{n}: would move to In Progress: {shlex.join(command[3:])}")
+        return True
+    try:
+        run(*command, cwd=ROOT)
+    except Failed as e:
+        log(f"{repo}#{n}: not started, could not move it to In Progress, retrying next round: {e}")
+        return False
+    log(f"{repo}#{n}: moved to In Progress")
+    return True
+
+
 def launch(d, repo, ws, session, n, dry):
+    """Starts the issue's session; False only when a failed claim should be
+    retried next round."""
     if (WORKTREES / session).exists():
         log(f"{repo}#{n}: not started, its worktree was kept: {WORKTREES / session}")
-        return
+        return True
+    if not claim(repo, n, dry):
+        return False
     args = ["--permission-mode", "auto", "--settings", str(WORKTREES / ".hooks.json"),
             "-n", session, "-w", session, f"/0xc0:work-issue {repo}#{n}"]
     if dry:
         log(f"{repo}#{n}: would start, in {d}: {shlex.join(['claude', *args])}")
-        return
+        return True
     worktree_settings()
     # The 0xc0 plugin's SessionStart hook skips the board read on it (#130).
     pane = herdr("tab", "create", "--workspace", ws, "--cwd", str(d),
@@ -279,6 +301,7 @@ def launch(d, repo, ws, session, n, dry):
     # session given a prompt goes straight to work (#112).
     run(HERDR, "pane", "run", pane, shlex.join(["claude", *args]))
     log(f"{repo}#{n}: started {session}")
+    return True
 
 
 def round_(d, repo, name, launched, dry):
@@ -316,8 +339,8 @@ def round_(d, repo, name, launched, dry):
     elif todo:
         update_plugin(d)
     for n in todo:
-        launch(d, repo, ws, f"{name}-{n}", n, dry)
-        launched.add(n)
+        if launch(d, repo, ws, f"{name}-{n}", n, dry):
+            launched.add(n)
     return not busy and not found
 
 
