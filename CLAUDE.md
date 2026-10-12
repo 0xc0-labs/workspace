@@ -19,10 +19,12 @@ it too.
 | `vault/`         | `vault`           | OpenTofu configuration of the cluster's Vault   |
 | `offby1.cc/`     | `offby1.cc`       | Next.js landing page for offby1.cc              |
 | `payload/`       | `payload`         | Payload CMS, multi-tenant backend of the fronts |
+| `artistlabco.com/` | `artistlabco.com` | the artist's site, a Payload frontend         |
 | `app-*/`         | various           | applications                                    |
 
 Dependency order: `.github` → `infrastructure` → `gitops` → `vault` →
-`offby1.cc`, `payload` and `app-*`.
+the applications (`offby1.cc`, `payload`, `artistlabco.com`, `app-*`).
+`claude-config` stands apart: nothing depends on it at deploy time.
 A downstream change is not merged until the upstream one is applied.
 
 ## Changes that cross repos
@@ -35,7 +37,7 @@ A downstream change is not merged until the upstream one is applied.
 
 ## Sessions
 
-`docs/design.md`, How we work, decides. In short:
+`docs/design/how-we-work.md` decides. In short:
 
 - **Here: the orchestrator** (`claude -n orchestrator`). Plans, and opens each
   repo's issue with everything its session needs: the outcome, the acceptance
@@ -89,7 +91,7 @@ How an issue is written and filed, so the board filters without labels:
 A request that arrives mid-conversation gets its issue first. The board is
 loaded into every Claude Code session by the plugin's `SessionStart` hook;
 `/project-status` reads it on demand. Decisions do not live on the board —
-they stay in `docs/design.md`.
+they stay in the design (`docs/design.md`, its index).
 
 ## Commits
 
@@ -222,11 +224,29 @@ Plugins keep themselves current (workspace#80):
   configuration, as self-modification: the session prepares the change and
   says so, the operator commits and pushes it.
 
+## Documentation
+
+Where a document belongs (operator decision, 2026-10-12; workspace#85):
+
+1. **One home per fact**; everything else links to it. No text is copied
+   between repos.
+2. **This repo** holds what is the org's: the decisions with their reasons
+   and dates (`docs/design.md` is their index), `docs/discarded.md`,
+   `docs/accepted-risks.md`, how we work, and the common rules, here.
+3. **Each repo** holds its own: how its part of the system is (`docs/`), how
+   it is operated (its README: runbooks and the operator's commands), and the
+   rules that apply there alone (its `CLAUDE.md`).
+4. **A repo's `CLAUDE.md` never repeats a rule of this file**, which every
+   session loads: it states only its own.
+5. **An operator procedure lives in the repo that owns what it touches.**
+   Writing a secret: the generic block once, in `vault`'s README; everything
+   else links to it and names only which keys at which path.
+
 ## Rules that apply in every repo
 
 - **Every application ships observable**: logs, metrics and traces to
   OpenObserve, and RUM when it has a frontend, in the same change that deploys
-  it (`docs/design.md`, Stack).
+  it (`docs/design/platform.md`).
 - **Everything written is in English**: file contents, file and directory
   names, code comments, commit messages, branch names, PR titles and bodies,
   docs. The conversation with the operator is in Spanish.
@@ -255,7 +275,7 @@ Plugins keep themselves current (workspace#80):
   `infrastructure/environments/prod/terraform.tfvars` and the reserved ranges
   in `infrastructure/docs/zones.md`, which are off limits.
 - What is discarded stays discarded. The list and the reasons are in
-  `docs/design.md`. Do not reopen it unless the human explicitly asks.
+  `docs/discarded.md`. Do not reopen it unless the human explicitly asks.
 
 ## Status
 

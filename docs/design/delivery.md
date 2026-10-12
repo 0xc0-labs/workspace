@@ -1,0 +1,172 @@
+# Delivery
+
+Part of the closed design ([the index](../design.md)): not reopened without
+an explicit decision from the operator.
+
+## Repos and policies
+
+`infrastructure` and `.github`: `main` only, PR required, apply behind manual
+approval. Applications: each decides whether it has a staging environment; one
+that does promotes staging→prod with the same digest, never a rebuild
+(Application delivery, below).
+ArgoCD points at `gitops/bootstrap/prod/`, which deploys `platform/` and
+`apps/`.
+
+## Application delivery
+
+How an application's code goes from a commit to staging and prod, and how a
+frontend and the backend it reads stay in step (operator decisions,
+2026-10-10 and 2026-10-11; workspace#68). It applies to `payload` and
+`artistlabco.com` first; another application adopts it when it gets a
+staging environment.
+
+**Trunk-based, versioned from Conventional Commits.** `main` is the trunk:
+short-lived branches, squash merges, no release branches. Every merge to
+`main` builds an image, `sha-<7>`, and cuts the next release candidate,
+`vX.Y.Z-rc.N`, a tag on that commit whose version `git-cliff` computes from
+the Conventional Commits since the last release (`feat` a minor, `fix` a
+patch, `!` a major). Every rc goes to staging. A release, `vX.Y.Z`, is a
+`workflow_dispatch` that the operator or the orchestrator runs: it takes the
+rc that staging runs, read from `gitops`, and makes it a GitHub Release on
+the same commit, with its changelog. A hotfix is a fix on `main`, its rc and
+a release. Versions start at `0.1.0`; while in 0.x a breaking change bumps
+the minor, which npm's caret already treats as breaking. `1.0.0` is cut by
+hand when the first frontend reaches prod.
+
+**Promotion is a PR in `gitops`, and the image is never rebuilt.** An rc and a
+release each tag the same digest with their version, and open a PR in `gitops`
+that changes only the environment's pin in its `kustomization.yaml`: the
+`images:` entry, tag and digest, and the version beside it, which `gitops`' CI
+checks against the tag. Staging's PR is set to merge itself once its checks
+pass. Prod's is the operator's merge, and that merge is prod's approval:
+GitHub Free gives private repositories no environment reviewers, wait timers,
+environment secrets or rulesets. Rolling back is reverting that PR.
+
+**Two GitHub Apps open the bots' PRs, and their keys never leave Vault.**
+`0xc0-labs-promoter` is installed on `gitops` alone, with contents and pull
+requests; `0xc0-labs-renovate`, on every repo. Their private keys are
+imported into Transit (`github-promoter-app`, `github-renovate-app`), as the
+runners' is: a job signs its App's JWT through Transit with its repo's JWT
+role, and exchanges it for an installation token narrowed to the repo and
+the permissions it needs. Two Apps rather than one, so that an
+application's CI can mint write access to `gitops` and nothing else. The
+`issue` check lets a PR through without a linked issue when one of the two
+Apps opened it: it names the release or the dependency it moves, and the
+board tracks the work of people and sessions.
+
+**The private applications run their whole CI on the self-hosted runners.**
+Vault, and with it the Apps' tokens, is reachable only from inside; running
+there also spares the GitHub-hosted minutes private repositories pay for.
+The runner group admits these repos and the reusable workflows they call,
+and the runners build images with rootless BuildKit, with the provenance and
+SBOM the GitHub-hosted build gives today. A dependency's code runs on the same
+runners that reach Vault, so a dependency version is taken only once it is
+three days old (`minimumReleaseAge`, in Renovate and in pnpm), and pnpm runs
+the build scripts of the packages it is told to (`allowBuilds`, which
+replaced `onlyBuiltDependencies` in pnpm 11) and no others. Public repos
+(`offby1.cc`) keep building on GitHub's runners.
+
+**Integration tests bring their own PostgreSQL, from mise** (operator
+decision, 2026-10-12; workspace#93). The runners have no Docker, and nothing
+they run may listen on the network (`infrastructure`'s `docs/zones.md`,
+invariant 10). So an application's tests start a throwaway server themselves:
+PostgreSQL from conda-forge through mise (`conda:postgresql`, prod's major,
+every package checksummed in `mise.lock` for Linux and macOS), `initdb` in a
+temporary directory, no TCP port (`listen_addresses=''`), a Unix socket in
+that directory, the repo's migrations, and everything removed when the tests
+end. The same `pnpm test` runs on a runner and on a Mac. `node-check` only runs
+it, with the tools the caller names. Not Debian's package (trixie ships 17,
+and 18 would bake a third-party repo into the runner image), not PGlite (no
+Payload adapter, and it does not behave as a server under concurrency), not a
+GitHub-hosted job with a service container (Vault and the minutes, above).
+
+**Staging is a second environment of the same application.** In `gitops`,
+an application is one folder with one directory per environment:
+`apps/<app>/prod/` and, when it has staging, `apps/<app>/staging/`, with
+what both share in `apps/<app>/base/`. An application with one environment
+keeps all of it in `prod/`; when it gains staging, the shared part moves to
+`base/`. The `apps` ApplicationSet makes an Argo CD application of each
+environment: prod keeps the application's name and namespace, `<app>`;
+staging is `<app>-staging`. Staging has its own database on the shared
+server, its own bucket, and its own `apps/<app>-staging/` path in Vault,
+which the `apps` role already covers. It is reached over WARP only, at
+`<app>-staging.int.0xc0.cc`, and is observed as prod is, its signals tagged
+`deployment.environment=staging`. Its data is a seed versioned in `payload`:
+tenants and test users, reset when needed; later, once prod
+has content, a copy of prod without its users collection, run by the
+operator. Applications without staging (`offby1.cc`, Mautic) move to
+`prod/` and stay as they are. Each staging environment doubles its
+application's memory in the cluster.
+
+**Migrations run before the new version, from the same image.** An Argo CD
+Sync hook in wave 1, before the Deployment in wave 2, runs `payload migrate`
+with the digest being deployed: when it fails, the sync stops there and the
+running version keeps serving. Not a PreSync hook: on an application's first
+sync it runs before its namespace and secrets exist, and never finishes
+(gitops#142). Every
+migration is expand and contract, so the previous version works on the new
+schema and rolling back the image is safe.
+
+**The frontends render on the server.** A frontend is a Next.js application
+in the cluster that reads Payload through its internal Service, with a
+read-only API key of its tenant, kept in Vault: the browser never calls the
+API, and what a page needs from it, a form or a search, goes through the
+frontend's own server. Staging's frontend reads staging's Payload, and the
+network policies let each Payload be reached only by the frontends of its
+environment. The build never reads Payload, and nothing that differs between
+environments is baked into the image (no `NEXT_PUBLIC_` value that does), so
+one image serves both. Outside, only the uploaded files are public, from R2
+at `media.0xc0.cc` (workspace#88); the API, GraphQL and authentication stay
+inside, and the admin stays at `payload.int.0xc0.cc`.
+
+**Observable as every application is, in both environments.** The rule in
+[platform](platform.md)
+(workspace#52) holds for each environment and for the migration Job, and the
+delivery adds what ties the signals to it. Every signal carries
+`service.name`, the application; `service.version`, the version the
+environment runs, `vX.Y.Z-rc.N` in staging and `vX.Y.Z` in prod, set beside
+the image in the environment's `kustomization.yaml`; the commit, baked into
+the image when it is built, so a trace leads to the code even from an image
+run outside `gitops`; and `deployment.environment`, from the environment's
+directory. The same image is an rc in staging and a release in prod, so its
+version cannot be baked into it. A request is one trace from the browser to
+the database: RUM starts it and sends `traceparent` to the frontend's own
+origin only, the frontend's server continues it, its call to Payload carries
+it, and Payload's spans reach PostgreSQL. Logs are JSON with the trace and
+span IDs, so OpenObserve opens a request's logs from its trace. Payload,
+itself a Next.js application, and the frontends instrument with OpenTelemetry
+through Next.js's instrumentation hook, and each environment's namespace is
+admitted in the collector's `otlp-from-senders`.
+
+**Images of private repositories stay private.** The cluster pulls them from
+GHCR with a read-only token at `apps/shared/ghcr-pull` in Vault, which Vault
+Secrets Operator turns into an `imagePullSecret` in each namespace that
+needs one. Images of public repos stay public, as today.
+
+**The backend publishes a versioned contract.** `payload` publishes its
+generated types as `@0xc0-labs/payload-types`, a private npm package in
+GitHub Packages, with the version of the rc or release that built it: an rc
+publishes `X.Y.Z-rc.N` under the `rc` dist-tag, a release `X.Y.Z`. A
+frontend pins it in its `package.json`, so a breaking change in the backend
+fails the frontend's build, never its users. The backend changes by expand
+and contract: it adds (a minor) and deploys, the frontends adopt, and it
+removes (a breaking release) only once no deployed frontend uses what goes.
+
+**CI enforces the order between repos:**
+
+1. A frontend release cannot depend on a prerelease of the contract, so the
+   backend always reaches prod first.
+2. Promoting a frontend to an environment fails unless that environment
+   already runs a backend version at least as high as the one the frontend
+   depends on, read from `gitops`.
+3. Later: a breaking release of the backend does not reach prod while a
+   frontend in prod still depends on the previous one.
+
+**Renovate keeps every repo's dependencies current.** It runs as a scheduled
+workflow in `.github`, on the self-hosted runners, with
+`0xc0-labs-renovate`'s token. A preset in `.github` holds what is common:
+the schedule, the grouping, Conventional Commit titles (`chore(deps): …`),
+digests pinned, and nothing merged by itself. Each repo opts in with a short
+`renovate.json` that extends it and adds its own. Being self-hosted, it runs
+`mise lock` after it bumps a tool, so `mise.lock` stays in step. It leaves
+alone the pins of the org's own images in `gitops`: promotion owns them.
