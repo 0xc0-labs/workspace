@@ -44,10 +44,16 @@ Then, every minute, it:
 1. closes the tab of each session that printed its last line,
    `work-issue: done <repo>#<n>` or `work-issue: stopped <repo>#<n>: <reason>`,
    and removes that session's worktree if it has no uncommitted changes and
-   no commit missing from `origin`. A branch GitHub deleted when its PR
+   no commit missing from `origin`: a clean worktree whose HEAD is already in
+   `origin/main` goes at once, whatever its branch, even one never pushed
+   (#166). A branch GitHub deleted when its PR
    merged counts as on `origin` if that PR holds the worktree's last commit,
    since a squash merge puts its commits in `main` under other SHAs (#134).
-   Otherwise it keeps the worktree and says so. It never closes a session that is working or waiting on the operator;
+   Otherwise it keeps the worktree and says so: uncommitted changes,
+   commits only here, or a deleted branch whose PR is not merged. The
+   operator looks at what is in it, saves or discards it, and removes it
+   (`git worktree remove --force .worktrees/<name>-<n>` from the repo's
+   clone). It never closes a session that is working or waiting on the operator;
 2. starts one session per free slot, in a tab named after it, on the repo's
    Ready issues blocked by nothing open, by priority, then number:
 
@@ -81,8 +87,11 @@ Then, every minute, it:
    worktree at `.worktrees/<name>-<n>/` in the workspace, detached at
    `origin/main`. They come through `--settings` because Claude Code creates
    a `-w` worktree before it loads the plugins' hooks. If an issue's worktree
-   is still there, kept from an earlier session, the autopilot leaves that
-   issue alone and says so.
+   is still there, kept from an earlier session, the autopilot does not start
+   that issue and does not count it as started: it logs the worktree's path
+   when it first sees it, then every ten minutes, and starts the issue on the
+   round after the worktree is gone, with no board change and no restart
+   (#166).
 
 After a round with no session tab and nothing Ready on the board, it closes
 its own tab. The board is read fresh in that round, after the finished

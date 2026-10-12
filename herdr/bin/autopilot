@@ -64,6 +64,7 @@ SCRIPT = Path(__file__).resolve()
 # What the loop reads from herdr/: a change to either is picked up between rounds.
 WATCHED = (SCRIPT, CONF)
 LAUNCHED_ENV = "OXC0_AUTOPILOT_LAUNCHED"
+KEPT_REPEAT = 600
 
 QUERY = """
 query($owner: String!, $name: String!) {
@@ -187,6 +188,10 @@ def clean_up(d, session, dry):
         log(f"{session}: worktree kept, it has uncommitted changes: {wt}")
         return
     git(wt, "fetch", "--prune", "--quiet", "origin")
+    # A session that ended with nothing of its own, on a branch it never pushed.
+    if git(wt, "merge-base", "--is-ancestor", "HEAD", "origin/main").returncode == 0:
+        remove_worktree(d, session, wt, dry, "")
+        return
     branch = git(wt, "symbolic-ref", "--quiet", "--short", "HEAD").stdout.strip()
     gone = bool(branch) and git(wt, "rev-parse", "--verify", "--quiet", f"refs/remotes/origin/{branch}").returncode != 0
     if gone:
@@ -206,10 +211,14 @@ def clean_up(d, session, dry):
     elif git(wt, "merge-base", "--is-ancestor", "HEAD", f"origin/{branch or 'main'}").returncode:
         log(f"{session}: worktree kept, {branch or 'HEAD'} has commits not on origin: {wt}")
         return
-    merged = ", its PR merged" if gone else ""
+    remove_worktree(d, session, wt, dry, ", its PR merged" if gone else "")
+
+
+def remove_worktree(d, session, wt, dry, merged):
     if dry:
         log(f"{session}: would remove its worktree {wt}{merged}")
         return
+    branch = git(wt, "symbolic-ref", "--quiet", "--short", "HEAD").stdout.strip()
     p = git(d, "worktree", "remove", str(wt))
     if p.returncode:
         log(f"{session}: worktree kept, {p.stderr.strip()}")
@@ -283,9 +292,6 @@ def claim(repo, n, dry):
 def launch(d, repo, ws, session, n, dry):
     """Starts the issue's session; False only when a failed claim should be
     retried next round."""
-    if (WORKTREES / session).exists():
-        log(f"{repo}#{n}: not started, its worktree was kept: {WORKTREES / session}")
-        return True
     if not claim(repo, n, dry):
         return False
     args = ["--permission-mode", "auto", "--settings", str(WORKTREES / ".hooks.json"),
@@ -303,6 +309,19 @@ def launch(d, repo, ws, session, n, dry):
     run(HERDR, "pane", "run", pane, shlex.join(["claude", *args]))
     log(f"{repo}#{n}: started {session}")
     return True
+
+
+KEPT_LOGGED = {}
+
+
+def say_kept(repo, n, wt):
+    """The kept-worktree line for an issue held back, when it first appears and
+    then at most once per KEPT_REPEAT."""
+    if time.monotonic() - KEPT_LOGGED.get(n, -KEPT_REPEAT) < KEPT_REPEAT:
+        return
+    KEPT_LOGGED[n] = time.monotonic()
+    log(f"{repo}#{n}: not started, its worktree was kept: {wt}; "
+        "removing it lets the issue start on the next round")
 
 
 def now_utc():
@@ -350,7 +369,10 @@ def round_(d, repo, name, launched, dry):
             todo.append(n)
         else:
             left.append(n)
-    todo = todo[:free]
+    held = [n for n in todo if (WORKTREES / f"{name}-{n}").exists()]
+    for n in held:
+        say_kept(repo, n, WORKTREES / f"{name}-{n}")
+    todo = [n for n in todo if n not in held][:free]
     if left and not todo:
         log(f"{repo}: waiting, started before and unchanged since its session ended: "
             + ", ".join(f"#{n}" for n in left))
