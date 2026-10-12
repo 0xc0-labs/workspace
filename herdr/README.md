@@ -8,6 +8,9 @@ tab and worktree, and turns itself off when nothing is left
 (`docs/design/how-we-work.md`). The orchestrator starts it with
 `bin/autopilot start <repo>` after it sets issues Ready.
 
+Herdr also runs one third-party plugin the workspace installs, the file
+viewer (File viewer, below).
+
 ## Autopilot
 
 `bin/autopilot start <repo>`, or picking a repo from the key, gives the
@@ -127,10 +130,49 @@ session by it.
 | `artistlabco.com` | `artistlabco-com` | `artistlabco-com-5` |
 | any other repo | its name | `payload-19` |
 
+## File viewer
+
+[`herdr-file-viewer`](https://github.com/smarzban/herdr-file-viewer) (MIT) is
+a git-aware, read-only viewer in a Herdr pane: a keyboard-driven TUI over a
+repo's files, their diffs and their rendered Markdown, beside the session
+that works on them. Two of its actions are bound below: one splits the
+current pane (pressed again, it focuses or closes the viewer), the other
+opens it in its own tab.
+
+It is not ours, so it stays pinned. `bootstrap.sh` installs it at the tag
+its `file_viewer_ref` holds, the only place the version is written:
+
+```sh
+herdr plugin install smarzban/herdr-file-viewer --ref "$file_viewer_ref" --yes
+```
+
+It runs only when `herdr plugin list` does not show the plugin at that tag,
+so a second run changes nothing. Herdr never updates a plugin by itself.
+To bump it, change `file_viewer_ref` in its own commit,
+`chore(herdr): bump herdr-file-viewer to X.Y.Z`, and run `./bootstrap.sh`
+on each machine: installing again with another `--ref` changes the version.
+
+The viewer runs `glow` for Markdown, `delta` for diffs and `bat` for source,
+from `PATH`, handing them the file on stdin, and shows plain text without
+them. They come from the workspace's `mise.toml`, pinned and locked like
+every tool, and `bootstrap.sh` runs `mise install` so they are there. They
+resolve through mise's shims (`~/.local/share/mise/shims`), which the shell
+that starts Herdr has in its `PATH` once it runs `mise activate`. They bump
+as any tool does: `chore(mise): bump glow to X.Y.Z`, then `mise lock`.
+
+Supply chain: Herdr runs the plugin's build step on install,
+`scripts/fetch-or-build.sh`, which downloads a prebuilt binary from the
+plugin's GitHub release and checks it against the `SHA256SUMS` of that same
+release. When no binary exists for the machine, it builds from source with
+`cargo build --release`. The pin fixes the version, but not what the tag
+holds: it does not protect against a tag that is published again, which
+would bring a new binary and its new checksums together (workspace#157).
+
 ## Setting it up, once per machine
 
 `bootstrap.sh` links the plugin in place, so a change here reaches Herdr
-with no reinstall. It has mise trust every config under
+with no reinstall. It also installs the file viewer and the renderers it
+needs (File viewer, above). It has mise trust every config under
 `~/git/github/0xc0-homelab/`, so a new worktree's `mise.toml` asks for no
 `mise trust`, creates `.worktrees/`, and runs `bin/autopilot prepare` for
 every org repo and for the workspace, which also trusts each in Claude Code
@@ -147,8 +189,9 @@ opens a browser, so run it yourself. It never reads, prints or stores the
 token: the line names a variable, and each install gets the token for that
 command alone.
 
-The keys go in your own Herdr `config.toml` (`prefix+a` and `prefix+shift+a`
-are free in the defaults), then `prefix+shift+r` reloads it:
+The keys go in your own Herdr `config.toml` (`prefix+a`, `prefix+shift+a`,
+`prefix+f` and `prefix+shift+f` are free in the defaults), then
+`prefix+shift+r` reloads it:
 
 ```toml
 [[keys.command]]
@@ -162,6 +205,18 @@ key = "prefix+shift+a"
 type = "plugin_action"
 command = "0xc0-workspace.autopilot"
 description = "Turn a repo's autopilot on or off"
+
+[[keys.command]]
+key = "prefix+f"
+type = "plugin_action"
+command = "herdr-file-viewer.open-file-viewer"
+description = "Open the file viewer beside this pane"
+
+[[keys.command]]
+key = "prefix+shift+f"
+type = "plugin_action"
+command = "herdr-file-viewer.open-file-viewer-tab"
+description = "Open the file viewer in its own tab"
 ```
 
 ## Files

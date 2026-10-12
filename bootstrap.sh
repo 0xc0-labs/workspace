@@ -34,6 +34,9 @@ echo "==> mise: trust $org"
 mise settings get trusted_config_paths | grep -qF "\"$org\"" ||
   mise settings add trusted_config_paths "$org"
 
+echo "==> mise: install the workspace's tools"
+mise install
+
 echo "==> packages: ~/.npmrc and gh scope"
 ensure_npmrc_line
 check_packages_scope
@@ -44,6 +47,16 @@ mkdir -p .worktrees
 echo "==> herdr: link the plugin"
 herdr plugin list | grep -qF "local:$PWD/herdr]" ||
   herdr plugin link "$PWD/herdr"
+
+# The plugin's tag, the only place it is written (herdr/README.md, File viewer).
+file_viewer=smarzban/herdr-file-viewer
+file_viewer_ref=v1.18.0
+
+# --yes: without a terminal, the install refuses to run without it.
+echo "==> herdr: install the file viewer plugin at $file_viewer_ref"
+plugins="$(herdr plugin list)"
+grep -qF "github:$file_viewer@$file_viewer_ref]" <<<"$plugins" ||
+  herdr plugin install "$file_viewer" --ref "$file_viewer_ref" --yes
 
 # Each clone: cloned if missing, on an up-to-date main unless someone works
 # in it, with its plugins installed for its path, and trusted by Claude Code
