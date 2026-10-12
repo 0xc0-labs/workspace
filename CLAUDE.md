@@ -58,6 +58,11 @@ A downstream change is not merged until the upstream one is applied.
   addresses a session by that name.
 - **Opening one**: in Herdr, the workspace's plugin (`herdr/README.md`) opens
   or focuses a repo's session, or the orchestrator, from one key.
+- **The autopilot**, a repo at a time, only when the operator turns it on from
+  another key (`herdr/README.md`): it starts one session per Ready issue,
+  named `<name>-<n>` (`payload-19`), each in its own worktree under
+  `.worktrees/`, which works that issue and ends. A repo whose autopilot is
+  off works as above.
 
 ## Tracking — mandatory
 
@@ -196,6 +201,10 @@ org's hooks. From Anthropic's marketplace, only what applies (workspace#72):
 | `claude-md-management` | the workspace |
 | `typescript-lsp` | the TypeScript repos; `typescript-language-server` and `typescript` pinned in their `mise.toml` |
 | `frontend-design` | the frontends |
+
+On a machine, Claude Code loads a repo's enabled plugins only once they are
+installed for its path, and a worktree uses its repo's record: `bootstrap.sh`
+installs whatever is missing, at local scope (workspace#106).
 
 Nothing that overlaps what is already there: `/simplify`, `/code-review` and
 `/security-review` are built in, and the app repos carry gentle-ai.

@@ -35,11 +35,23 @@ if [ "$dry" != --dry-run ] && "$herdr" agent get "$name" >/dev/null 2>&1; then
   exec "$herdr" agent focus "$name"
 fi
 
-if [ "$dry" = --dry-run ]; then
-  run "$herdr" workspace create --cwd "$dir" --label "$name" --focus
-  pane='<new workspace root pane>'
+# The autopilot may have opened the repo's workspace already: the session
+# then gets a tab in it.
+ws="$("$herdr" workspace list | python3 -c '
+import json, sys
+print(next((w["workspace_id"] for w in json.load(sys.stdin)["result"]["workspaces"]
+            if w["label"] == sys.argv[1]), ""))' "$name")"
+if [ -n "$ws" ]; then
+  create=("$herdr" tab create --workspace "$ws" --cwd "$dir" --label "$name" --focus)
 else
-  pane="$("$herdr" workspace create --cwd "$dir" --label "$name" --focus |
+  create=("$herdr" workspace create --cwd "$dir" --label "$name" --focus)
+fi
+if [ "$dry" = --dry-run ]; then
+  run "${create[@]}"
+  pane='<new root pane>'
+else
+  pane="$("${create[@]}" |
     python3 -c 'import json, sys; print(json.load(sys.stdin)["result"]["root_pane"]["pane_id"])')"
 fi
 run "$herdr" agent start "$name" --kind claude --pane "$pane" -- "${args[@]}"
+[ -z "$ws" ] || [ "$dry" = --dry-run ] || "$herdr" agent focus "$name" >/dev/null

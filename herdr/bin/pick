@@ -1,20 +1,36 @@
 #!/usr/bin/env bash
 # The picker popup: lists the workspace and every repo cloned in it, and opens
-# the session of the one picked. Plain bash 3, so a stock macOS runs it.
+# the session of the one picked. With --autopilot, lists the repos with their
+# autopilot on or off, and turns the one picked on or off. Plain bash 3, so a
+# stock macOS runs it.
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 root="$(cd "$here/../.." && pwd)"
+mode="${1:-}"
 
-dirs=("$root")
-labels=("workspace (orchestrator)")
+dirs=()
+labels=()
+if [ "$mode" != --autopilot ]; then
+  dirs+=("$root")
+  labels+=("workspace (orchestrator)")
+fi
 for d in "$root"/.github "$root"/*/; do
   d="${d%/}"
   [ -d "$d/.git" ] || continue
   dirs+=("$d")
-  labels+=("$(basename "$d")")
+  if [ "$mode" = --autopilot ]; then
+    labels+=("$(printf '%-16s %s' "$(basename "$d")" "$("$here/autopilot" state "$d")")")
+  else
+    labels+=("$(basename "$d")")
+  fi
 done
+[ "${#dirs[@]}" -gt 0 ] || { echo "No repo is cloned in the workspace."; exit 0; }
 
-echo "Open a session. A number, or Enter to close."
+if [ "$mode" = --autopilot ]; then
+  echo "Turn a repo's autopilot on or off. A number, or Enter to close."
+else
+  echo "Open a session. A number, or Enter to close."
+fi
 echo
 i=1
 for l in "${labels[@]}"; do
@@ -27,4 +43,7 @@ case "$choice" in
   ''|*[!0-9]*) exit 0 ;;
 esac
 [ "$choice" -ge 1 ] && [ "$choice" -le "${#dirs[@]}" ] || exit 0
+if [ "$mode" = --autopilot ]; then
+  exec "$here/autopilot" toggle "${dirs[$((choice - 1))]}"
+fi
 exec "$here/open-session" "${dirs[$((choice - 1))]}"

@@ -11,6 +11,10 @@
 /artistlabco.com/
 /app-*/
 
+# One worktree per issue's session, placed by the 0xc0 plugin's WorktreeCreate
+# hook (herdr/README.md, Autopilot).
+/.worktrees/
+
 mise.local.toml
 
 .DS_Store

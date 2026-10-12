@@ -44,6 +44,50 @@ on a timer: every look is a turn of the model, paid whether or not anything
 is there. An issue set Ready by hand, past the orchestrator, is seen at the
 session's next look.
 
+**The autopilot: one fresh session per issue** (operator decision,
+2026-10-12; workspace#103). A session that takes issue after issue carries
+every earlier one in its context: each costs more of the subscription than
+the last, the work gets worse, and the session keeps the rules and plugins it
+loaded at its start. Nothing of an earlier issue helps the next: the contract
+is the issue, the progress is the feature document and the PR, the rules are
+the `CLAUDE.md` files. So, besides the sessions above, a repo can run on its
+autopilot, which the operator turns on or off from a key. A repo whose
+autopilot is off works exactly as above.
+
+- **One session per issue.** The autopilot starts
+  `claude -n <name>-<n> -w <name>-<n> "/0xc0:work-issue <repo>#<n>"`
+  (`payload-19`, `github-61`). Given an issue, `work-issue` works that one and
+  ends, its last line `work-issue: done <repo>#<n>`, or `stopped` with the
+  reason.
+- **Its own worktree.** The `0xc0` plugin's worktree scripts, which the
+  autopilot passes as the session's hooks, place it beside the repos, in the
+  workspace's `.worktrees/<name>-<n>/`, detached at `origin/main`. Claude
+  Code's default place is inside the repo. There, Node would resolve a module
+  missing from the worktree in the primary clone's `node_modules`, and the
+  primary clone's tools would walk into every worktree. Sessions of one repo
+  work side by side without touching each other's files, and share the
+  approvals saved in the primary clone.
+- **The loop.** It runs in the `autopilot` tab of the repo's Herdr workspace.
+  Every minute it closes the tab of each session that printed its last line,
+  removes that session's worktree when nothing in it exists only there, and
+  starts a session per free slot, on the Ready issues blocked by nothing open,
+  by priority. Two slots in the application repos; one in the others, whose
+  merges end in applies that go in order (`herdr/autopilot.conf`). It never
+  closes a session that is working or waiting on the operator. Its look at
+  the board is a script's, not a turn of the model: one small GraphQL query,
+  one point of the GitHub API's 5,000 an hour, and none while every slot is
+  busy.
+- **Holds live on the board.** An issue the operator wants left alone is
+  Blocked. A repo is paused by turning its autopilot off, which starts
+  nothing more and lets the running sessions finish.
+- **Never several sessions on one issue.** A big issue is split into
+  sub-issues, which run side by side where none blocks another. Inside one
+  issue, gentle-ai spreads the work over its own subagents.
+- Orca, which runs agents in worktrees too, was weighed and set aside
+  (workspace#104). Herdr already runs the sessions. Orca's notifications to
+  the phone go through its maker's servers, and its settings live outside any
+  repo.
+
 **The issue is the contract.** A repo session starts with no memory of the
 conversation behind its task, so everything it needs is in its issue: the
 outcome, the acceptance criteria, the branch name, the sibling issues and the
@@ -83,8 +127,10 @@ gentle-ai means it to be recoverable, and commits its own; Engram's copy is
 on one laptop.
 
 **What stays the operator's**: marking a PR ready, merging, every apply,
-writing and rotating secrets, and which repos' sessions are open.
+writing and rotating secrets, which repos' sessions are open, and which
+repos' autopilots are on.
 
 **Cost.** Every session draws on the operator's Claude subscription, and
-several at work spend it faster than one. No `ANTHROPIC_API_KEY` in the
-environment and no `--bare`, either of which bills the API instead.
+several at work spend it faster than one: an autopilot's slots bound how
+many of its sessions run at once. No `ANTHROPIC_API_KEY` in the environment
+and no `--bare`, either of which bills the API instead.
