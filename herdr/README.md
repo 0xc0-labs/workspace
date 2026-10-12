@@ -75,7 +75,8 @@ session by it.
 ## Setting it up, once per machine
 
 `bootstrap.sh` links the plugin in place, so a change here reaches Herdr
-with no reinstall. It also has mise trust every config under
+with no reinstall. It installs each repo's enabled Claude Code plugins for
+its path, which its worktrees' sessions need too. It also has mise trust every config under
 `~/git/github/0xc0-homelab/`, so a new worktree's `mise.toml` asks for no
 `mise trust`, and creates `.worktrees/`.
 

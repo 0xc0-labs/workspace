@@ -202,6 +202,10 @@ org's hooks. From Anthropic's marketplace, only what applies (workspace#72):
 | `typescript-lsp` | the TypeScript repos; `typescript-language-server` and `typescript` pinned in their `mise.toml` |
 | `frontend-design` | the frontends |
 
+On a machine, Claude Code loads a repo's enabled plugins only once they are
+installed for its path, and a worktree uses its repo's record: `bootstrap.sh`
+installs whatever is missing, at local scope (workspace#106).
+
 Nothing that overlaps what is already there: `/simplify`, `/code-review` and
 `/security-review` are built in, and the app repos carry gentle-ai.
 gentle-ai's feature document (`odd/tasks/<feature>.md`) is committed in the
