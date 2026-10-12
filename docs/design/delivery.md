@@ -7,40 +7,71 @@ an explicit decision from the operator.
 
 `infrastructure` and `.github`: `main` only, PR required, apply behind manual
 approval. Applications: each decides whether it has a staging environment; one
-that does promotes staging→prod with the same digest, never a rebuild
-(Application delivery, below).
+that does promotes staging→prod with the same digest, never a rebuild, and one
+that does not releases every push to `main` (Application delivery, below).
 ArgoCD points at `gitops/bootstrap/prod/`, which deploys `platform/` and
-`apps/`.
+`apps/`. `gitops` merges through a merge queue (Application delivery, below).
 
 ## Application delivery
 
 How an application's code goes from a commit to staging and prod, and how a
 frontend and the backend it reads stay in step (operator decisions,
 2026-10-10 and 2026-10-11; workspace#68). It applies to `payload` and
-`artistlabco.com` first; another application adopts it when it gets a
-staging environment.
+`artistlabco.com`, which have a staging environment, and to `offby1.cc`,
+which has none (below).
 
 **Trunk-based, versioned from Conventional Commits.** `main` is the trunk:
 short-lived branches, squash merges, no release branches. Every merge to
-`main` builds an image, `sha-<7>`, and cuts the next release candidate,
-`vX.Y.Z-rc.N`, a tag on that commit whose version `git-cliff` computes from
-the Conventional Commits since the last release (`feat` a minor, `fix` a
-patch, `!` a major). Every rc goes to staging. A release, `vX.Y.Z`, is a
-`workflow_dispatch` that the operator or the orchestrator runs: it takes the
-rc that staging runs, read from `gitops`, and makes it a GitHub Release on
-the same commit, with its changelog. A hotfix is a fix on `main`, its rc and
-a release. Versions start at `0.1.0`; while in 0.x a breaking change bumps
-the minor, which npm's caret already treats as breaking. `1.0.0` is cut by
-hand when the first frontend reaches prod.
+`main` builds an image, `sha-<7>`. In an application with staging, it also
+cuts the next release candidate, `vX.Y.Z-rc.N`, a tag on that commit whose
+version `git-cliff` computes from the Conventional Commits since the last
+release (`feat` a minor, `fix` a patch, `!` a major), and every rc goes to
+staging. Its release, `vX.Y.Z`, is a `workflow_dispatch` that the operator or
+the orchestrator runs: it takes the rc that staging runs, read from `gitops`,
+and makes it a GitHub Release on the same commit, with its changelog. A
+hotfix is a fix on `main`, its rc and a release. Versions start at `0.1.0`;
+while in 0.x a breaking change bumps the minor, which npm's caret already
+treats as breaking. `1.0.0` is cut by hand when the first frontend reaches
+prod.
+
+**An application with no staging releases on every push to `main`**
+(operator decisions, 2026-10-12; workspace#140). `offby1.cc` is one, a
+landing page with no data and no backend, whose image was pinned in `gitops`
+by hand from each build's summary (.github#61). It takes the flow above
+without staging and without release candidates: with no staging to try an
+rc in, every push to `main` is a release, `vX.Y.Z` by the same `git-cliff`
+count, with its tag on that commit, its GitHub Release and changelog, the
+image's digest tagged with it, and prod's PR in `gitops`. As with staging,
+merging that PR is prod's approval, and no one pins a digest by hand. Its
+checks and image run on GitHub's runners, and its release, which logs in to
+Vault for the promoter's token, on the self-hosted ones (below). How a repo
+calls it is in the
+[`.github` README](https://github.com/0xc0-labs/.github/blob/main/README.md#application-repos).
 
 **Promotion is a PR in `gitops`, and the image is never rebuilt.** An rc and a
 release each tag the same digest with their version, and open a PR in `gitops`
 that changes only the environment's pin in its `kustomization.yaml`: the
 `images:` entry, tag and digest, and the version beside it, which `gitops`' CI
 checks against the tag. Staging's PR is set to merge itself once its checks
-pass. Prod's is the operator's merge, and that merge is prod's approval:
-GitHub Free gives private repositories no environment reviewers, wait timers,
-environment secrets or rulesets. Rolling back is reverting that PR.
+pass, through `gitops`' merge queue (below). Prod's is the operator's merge,
+and that merge is prod's approval: GitHub Free gives private repositories no
+environment reviewers, wait timers, environment secrets or rulesets. Rolling
+back is reverting that PR.
+
+**`gitops` merges through a merge queue** (operator decision, 2026-10-12;
+workspace#139). Its ruleset requires a branch to be up to date with `main`,
+and auto-merge does not update one, so a staging PR that another merge
+overtook stayed open (.github#88). With a queue, auto-merge enqueues the PR,
+and the queue builds it on top of the latest `main` and of the PRs ahead of
+it, runs the required checks on that, and merges it; a PR that does not
+apply cleanly leaves the queue and waits for a person. A person's PR to
+`gitops` goes through the queue too. GitHub Free offers a queue to an
+organization's public repositories, which `gitops` is. Not a workflow that
+updates the PR with the promoter's token: that token comes from Vault, which
+only the self-hosted runners reach, and `gitops` is outside their group,
+while a branch updated with `GITHUB_TOKEN` triggers no checks. Not dropping
+the up-to-date rule for `gitops`: it would merge a PR whose checks ran on an
+old base.
 
 **Two GitHub Apps open the bots' PRs, and their keys never leave Vault.**
 `0xc0-labs-promoter` is installed on `gitops` alone, with contents and pull
@@ -54,31 +85,47 @@ application's CI can mint write access to `gitops` and nothing else. The
 Apps opened it: it names the release or the dependency it moves, and the
 board tracks the work of people and sessions.
 
-**The private applications run their whole CI on the self-hosted runners.**
-Vault, and with it the Apps' tokens, is reachable only from inside; running
-there also spares the GitHub-hosted minutes private repositories pay for.
-The runner group admits these repos and the reusable workflows they call,
-and the runners build images with rootless BuildKit, with the provenance and
-SBOM the GitHub-hosted build gives today. A dependency's code runs on the same
-runners that reach Vault, so a dependency version is taken only once it is
-three days old (`minimumReleaseAge`, in Renovate and in pnpm), and pnpm runs
-the build scripts of the packages it is told to (`allowBuilds`, which
-replaced `onlyBuiltDependencies` in pnpm 11) and no others. Public repos
-(`offby1.cc`) keep building on GitHub's runners.
+**Only the jobs that log in to Vault run on the self-hosted runners;
+everything else runs on GitHub's** (operator decision, 2026-10-12;
+workspace#138). Two Next.js builds on one CI VM, 2 cores and 4 GB shared by
+its two runners, hang it, and the node has no memory left to give it: 62 GB,
+60 of them allocated to VMs (infrastructure#235). A private repository's
+standard GitHub runner has 2 CPUs and 8 GB to itself. So an application's
+checks and image, and `packages`' checks and releases, run there: none of
+them logs in to Vault. The jobs that do stay on the self-hosted runners, as
+Vault is reachable only from inside: an application's rc and release, for
+the Apps' tokens, and the pipelines of `infrastructure` and `vault`. The
+runner group admits those repos, `offby1.cc` among them for its release, and
+the reusable workflows they call. GitHub Free gives private repositories
+2,000 minutes a month and, with no payment method, blocks their jobs once
+they run out instead of billing them: `payload` used about 320 from
+2026-10-01 to 10-12, hung builds included. A dependency's code runs where it
+is installed and built: on GitHub's runners, beside the tokens that push an
+application's image and publish the org's packages, and on the machines of
+people and sessions. An image or a package it poisons reaches the cluster,
+or every application that pins it. So a dependency version is taken only
+once it is three days old (`minimumReleaseAge`, in Renovate and in pnpm),
+and pnpm runs the build scripts of the packages it is told to (`allowBuilds`,
+which replaced `onlyBuiltDependencies` in pnpm 11) and no others. Which
+runner each job asks for is in the
+[`.github` README](https://github.com/0xc0-labs/.github/blob/main/README.md).
 
 **Integration tests bring their own PostgreSQL, from mise** (operator
-decision, 2026-10-12; workspace#93). The runners have no Docker, and nothing
-they run may listen on the network (`infrastructure`'s `docs/zones.md`,
-invariant 10). So an application's tests start a throwaway server themselves:
-PostgreSQL from conda-forge through mise (`conda:postgresql`, prod's major,
-every package checksummed in `mise.lock` for Linux and macOS), `initdb` in a
-temporary directory, no TCP port (`listen_addresses=''`), a Unix socket in
-that directory, the repo's migrations, and everything removed when the tests
-end. The same `pnpm test` runs on a runner and on a Mac. `node-check` only runs
-it, with the tools the caller names. Not Debian's package (trixie ships 17,
-and 18 would bake a third-party repo into the runner image), not PGlite (no
-Payload adapter, and it does not behave as a server under concurrency), not a
-GitHub-hosted job with a service container (Vault and the minutes, above).
+decision, 2026-10-12; workspace#93). It was decided while the checks ran on
+the self-hosted runners, which have no Docker and where nothing may listen on
+the network (`infrastructure`'s `docs/zones.md`, invariant 10), and it
+stands now that they run on GitHub's (above). An application's tests start a
+throwaway server themselves: PostgreSQL from conda-forge through mise
+(`conda:postgresql`, prod's major, every package checksummed in `mise.lock`
+for Linux and macOS), `initdb` in a temporary directory, no TCP port
+(`listen_addresses=''`), a Unix socket in that directory, the repo's
+migrations, and everything removed when the tests end. The same `pnpm test`
+runs on GitHub's runners and on a Mac. `node-check` only runs it, with the
+tools the caller names. Not Debian's package (trixie ships 17, and 18 would
+bake a third-party repo into the runner image), not PGlite (no Payload
+adapter, and it does not behave as a server under concurrency), not a
+service container: it ties the tests to the workflow that starts it, where
+the same `pnpm test` must run on GitHub's runners and on a Mac.
 
 **Staging is a second environment of the same application.** In `gitops`,
 an application is one folder with one directory per environment:
@@ -94,9 +141,10 @@ which the `apps` role already covers. It is reached over WARP only, at
 `deployment.environment=staging`. Its data is a seed versioned in `payload`:
 tenants and test users, reset when needed; later, once prod
 has content, a copy of prod without its users collection, run by the
-operator. Applications without staging (`offby1.cc`, Mautic) move to
-`prod/` and stay as they are. Each staging environment doubles its
-application's memory in the cluster.
+operator. Applications without staging keep everything in `prod/`:
+Mautic as it is, and `offby1.cc` with its pin written by its releases
+(above). Each staging environment doubles its application's memory in the
+cluster.
 
 **Migrations run before the new version, from the same image.** An Argo CD
 Sync hook in wave 1, before the Deployment in wave 2, runs `payload migrate`
