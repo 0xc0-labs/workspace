@@ -267,6 +267,10 @@ def round_(d, repo, name, launched, dry):
     if found is None:
         return False
     todo = [n for n in found if n not in busy and n not in launched][:free]
+    if todo and dry:
+        log(f"{repo}: would update 0xc0")
+    elif todo:
+        update_plugin(d)
     for n in todo:
         launch(d, repo, ws, f"{name}-{n}", n, dry)
         launched.add(n)
@@ -306,25 +310,33 @@ def to_main(d):
         log(f"{d.name}: main not updated: {p.stderr.strip()}")
 
 
+def claude_plugin(d, *args):
+    p = subprocess.run(["claude", "plugin", *args], cwd=d, capture_output=True, text=True)
+    if p.returncode:
+        log(f"{d.name}: claude plugin {' '.join(args)}: {(p.stderr or p.stdout).strip()}")
+
+
 def plugins(d):
     """Installs the plugins the repo enables that have no record for its path
-    (#106), and updates 0xc0, which Claude Code would update only after a
-    session had started on the old one (#114)."""
-    def claude(*args):
-        p = subprocess.run(["claude", "plugin", *args], cwd=d, capture_output=True, text=True)
-        if p.returncode:
-            log(f"{d.name}: claude plugin {' '.join(args)}: {(p.stderr or p.stdout).strip()}")
-
+    (#106), then updates 0xc0."""
     settings = d / ".claude" / "settings.json"
-    before = settings.read_text()
     installed = json.loads(run("claude", "plugin", "list", "--json", cwd=d))
-    for plugin, on in json.loads(before).get("enabledPlugins", {}).items():
+    for plugin, on in json.loads(settings.read_text()).get("enabledPlugins", {}).items():
         if on and not any(i["id"] == plugin and (i.get("scope") == "user" or i.get("projectPath") == str(d))
                           for i in installed):
             log(f"{d.name}: installing {plugin}")
-            claude("install", plugin, "--scope", "local")
-    claude("marketplace", "update", "0xc0-labs")
-    claude("update", "0xc0@0xc0-labs")
+            claude_plugin(d, "install", plugin, "--scope", "local")
+    update_plugin(d)
+
+
+def update_plugin(d):
+    """Updates 0xc0, which Claude Code would update only after a session had
+    started on the old one (#114): a session loads the install on disk when
+    it starts (#124)."""
+    settings = d / ".claude" / "settings.json"
+    before = settings.read_text()
+    claude_plugin(d, "marketplace", "update", "0xc0-labs")
+    claude_plugin(d, "update", "0xc0@0xc0-labs")
     after = settings.read_text()
     if after != before and json.loads(after) == json.loads(before):
         settings.write_text(before)  # a project-scope update rewrites it with its keys reordered

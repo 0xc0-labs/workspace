@@ -40,6 +40,10 @@ Then, every minute, it:
      -n <name>-<n> -w <name>-<n> "/0xc0:work-issue <repo>#<n>"
    ```
 
+   A round that starts a session updates `0xc0` first, once: a session
+   loads the plugin on disk when it starts, and Claude Code's own update
+   reaches only the next session (#124).
+
    Auto mode lets the session work unattended: a classifier approves
    routine commands and blocks risky ones, and the repo's `deny` rules
    still hold.
