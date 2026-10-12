@@ -48,6 +48,9 @@ Then, every minute, it:
    routine commands and blocks risky ones, and the repo's `deny` rules
    still hold.
 
+   Each session runs with `OXC0_AUTOPILOT=1`, so the `0xc0` plugin's board
+   hook skips the whole-board read it does not need (claude-config#71).
+
    `.hooks.json`, which the autopilot writes, declares the `0xc0` plugin's
    worktree scripts from the workspace's `claude-config` checkout as the
    session's `WorktreeCreate` and `WorktreeRemove` hooks: they place the

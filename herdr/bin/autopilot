@@ -234,8 +234,10 @@ def launch(d, repo, ws, session, n, dry):
         log(f"{repo}#{n}: would start, in {d}: {shlex.join(['claude', *args])}")
         return
     worktree_settings()
+    # The 0xc0 plugin's SessionStart hook skips the board read on it (#130).
     pane = herdr("tab", "create", "--workspace", ws, "--cwd", str(d),
-                 "--label", session, "--no-focus")["root_pane"]["pane_id"]
+                 "--label", session, "--no-focus",
+                 "--env", "OXC0_AUTOPILOT=1")["root_pane"]["pane_id"]
     # Not `agent start`: it waits for the agent to be ready for input, and a
     # session given a prompt goes straight to work (#112).
     run(HERDR, "pane", "run", pane, shlex.join(["claude", *args]))
