@@ -280,6 +280,13 @@ Where a document belongs (operator decision, 2026-10-12; workspace#85):
   callers: their triggers and paths, then
   `uses: 0xc0-labs/.github/.github/workflows/<name>.yml@main`. A new
   pipeline starts there, never in the repo that uses it.
+- **Code that two repos need alike lives once**, as a versioned package in
+  `0xc0-labs/packages`, published as `@0xc0-labs/<name>` and pinned by each
+  app (operator decision, 2026-10-12; workspace#121). Extract when a second
+  repo needs the same code, or a behaviour that must stay alike: observability,
+  security headers, log format, health checks. Not code that only looks
+  alike, a line or two, or configuration. The rest in
+  `docs/design/delivery.md`.
 - OpenTofu is **always** written as modules, with Google's layout:
   `modules/<name>/` for resources, `environments/<env>/` for roots, which only
   call modules. Each root has its own state key,
