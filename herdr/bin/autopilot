@@ -176,9 +176,18 @@ def clean_up(d, session, dry):
     log(f"{session}: worktree removed")
 
 
-def finish(d, repo, session, n, tab, agent, dry):
+def at_shell(pane):
+    """Whether the pane is back at its shell, with no program in front."""
+    info = herdr("pane", "process-info", "--pane", pane)["process_info"]
+    return info["foreground_process_group_id"] == info["shell_pid"]
+
+
+def finish(d, repo, session, n, tab, agent, pane, dry):
     """Closes a worker's tab when its session has ended; True if it did."""
     if agent is None:
+        # Herdr may not have detected a session that just started.
+        if pane is None or not at_shell(pane):
+            return False
         reason = "its session exited"
     elif agent["agent_status"] in ("idle", "done"):
         reason = last_line(repo, n, agent["pane_id"])
@@ -222,17 +231,10 @@ def launch(d, repo, ws, session, n, dry):
     worktree_settings()
     pane = herdr("tab", "create", "--workspace", ws, "--cwd", str(d),
                  "--label", session, "--no-focus")["root_pane"]["pane_id"]
-    # A new tab's shell may not be at its prompt yet, and agent start needs it.
-    for _ in range(15):
-        p = subprocess.run([HERDR, "agent", "start", session, "--kind", "claude",
-                            "--pane", pane, "--timeout", "120000", "--", *args],
-                           capture_output=True, text=True)
-        if p.returncode == 0 or "agent_not_ready" in p.stderr or \
-                subprocess.run([HERDR, "agent", "get", session], capture_output=True).returncode == 0:
-            log(f"{repo}#{n}: started {session}")
-            return
-        time.sleep(2)
-    log(f"{repo}#{n}: {session} did not start: {p.stderr.strip()}")
+    # Not `agent start`: it waits for the agent to be ready for input, and a
+    # session given a prompt goes straight to work (#112).
+    run(HERDR, "pane", "run", pane, shlex.join(["claude", *args]))
+    log(f"{repo}#{n}: started {session}")
 
 
 def round_(d, repo, name, launched, dry):
@@ -242,13 +244,16 @@ def round_(d, repo, name, launched, dry):
     if ws is None and not dry:
         raise Failed(f"no Herdr workspace named {name}")
     agents = {a["tab_id"]: a for a in herdr("agent", "list")["agents"]}
+    panes = {p["tab_id"]: p["pane_id"] for p in herdr("pane", "list", "--workspace", ws)["panes"]} if ws else {}
     busy = set()
     for tab in tabs(ws):
         m = re.fullmatch(rf"{re.escape(name)}-(\d+)", tab["label"])
         if not m:
             continue
-        n = int(m.group(1))
-        if not finish(d, repo, tab["label"], n, tab, agents.get(tab["tab_id"]), dry):
+        n, agent = int(m.group(1)), agents.get(tab["tab_id"])
+        if agent is not None and not agent.get("name") and not dry:
+            subprocess.run([HERDR, "agent", "rename", agent["pane_id"], tab["label"]], capture_output=True)
+        if not finish(d, repo, tab["label"], n, tab, agent, panes.get(tab["tab_id"]), dry):
             busy.add(n)
     free = slots(repo) - len(busy)
     if free <= 0:
