@@ -43,9 +43,11 @@ A downstream change is not merged until the upstream one is applied.
   repo's issue with everything its session needs: the outcome, the acceptance
   criteria, the branch, the sibling issues and the merge order. Hands each repo
   its issue, and checks the whole set before calling it done: every PR's
-  checks, the merge order, and what one repo does to another. Edits only this
-  repo and the board, never another repo's files. After it sets a repo's
-  issues Ready, starts that repo's autopilot:
+  checks, the merge order, and what one repo does to another. Edits the
+  board itself, but no file in its own session: a subagent in its own
+  worktree implements each change to this repo and opens the PR (operator
+  decision, 2026-10-12; workspace#126). It never edits another repo's
+  files. After it sets a repo's issues Ready, starts that repo's autopilot:
   `herdr/bin/autopilot start <repo directory>`.
 - **In a repo** (`claude -n <name>`). Works only that repo, from its issue,
   up to a draft PR, and reports back to the orchestrator: the PR, its checks,

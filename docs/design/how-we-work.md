@@ -11,8 +11,8 @@ of one session in the workspace editing every repo (operator decision,
 
 - **The orchestrator**: `claude -n orchestrator`, in the workspace. It plans,
   opens the issues, hands each repo its part, and checks what crosses repos.
-  It edits the workspace repo (the design, the rules) and the board, and no
-  other repo's files.
+  It edits the board itself, the workspace repo (the design, the rules) only
+  through a subagent in its own worktree, and no other repo's files.
 - **A repo session**: `claude -n <name>`, in that repo, opened by the operator
   in its own Herdr workspace when the repo is in play. It loads that repo's
   `CLAUDE.md`, plugins and permissions, works only there, and goes up to a
