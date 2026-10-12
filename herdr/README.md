@@ -1,10 +1,11 @@
 # herdr
 
 The workspace's [Herdr](https://herdr.dev) plugin, `0xc0-workspace`. One key
-turns a repo's autopilot on or off; the autopilot works the repo's Ready
-issues, one fresh Claude Code session per issue, each in its own tab and
-worktree. Another key opens a repo's session by hand, or the orchestrator
-(`docs/design/how-we-work.md`).
+opens a repo's Claude Code session in its own Herdr workspace, or the
+orchestrator. Another turns a repo's autopilot on or off: the autopilot
+works the repo's Ready issues, one fresh session per issue, each in its own
+tab and worktree (`docs/design/how-we-work.md`). A repo whose autopilot is
+off works as it did before it.
 
 ## Autopilot
 
@@ -52,9 +53,9 @@ remove and start, changing nothing.
 
 Pick a repo, and a tab named after it opens in its Herdr workspace, or a new
 workspace, with `claude -n <name> "/0xc0:work-issue"`: the session takes that
-repo's Ready issue of highest priority, does it and ends. Pick the workspace,
-and the orchestrator opens: `claude -n orchestrator`. A session already open
-is focused, not opened twice.
+repo's Ready issue of highest priority, and the next when it finishes. Pick
+the workspace, and the orchestrator opens: `claude -n orchestrator`. A
+session already open is focused, not opened twice.
 
 ## Names
 
