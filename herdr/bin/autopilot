@@ -18,8 +18,8 @@ Every minute, in the Herdr workspace named after the repo's session, it
 closes the tab of each session that printed its last line, and starts one
 session per free slot:
 
-  claude --permission-mode auto --settings .worktrees/.hooks.json \
-    -n <session>-<n> -w <session>-<n> "/0xc0:work-issue <repo>#<n>"
+  claude --permission-mode auto --model sonnet --effort medium \
+    --settings .worktrees/.hooks.json -n <session>-<n> -w <session>-<n> "/0xc0:work-issue <repo>#<n>"
 
 It never closes a session that is working or waiting on the operator, and
 turns itself off once no session runs and nothing is Ready to start.
@@ -44,6 +44,7 @@ HERDR = os.environ.get("HERDR_BIN_PATH", "herdr")
 ROOT = Path(__file__).resolve().parents[2]
 WORKTREES = ROOT / ".worktrees"
 CONF = ROOT / "herdr" / "autopilot.conf"
+MODELS = ROOT / "herdr" / "session-models.conf"
 HOOKS = ROOT / "claude-config" / "plugins" / "0xc0" / "hooks"
 PRIORITY = {"P1": 1, "P2": 2, "P3": 3}
 LOW_BUDGET = 500
@@ -254,11 +255,19 @@ def worktree_settings():
     }}, indent=2) + "\n")
 
 
+def model_flags(kind):
+    for line in MODELS.read_text().splitlines():
+        words = line.split()
+        if words and words[0] == kind:
+            return words[1:]
+    raise Failed(f"no '{kind}' line in {MODELS}")
+
+
 def launch(d, repo, ws, session, n, dry):
     if (WORKTREES / session).exists():
         log(f"{repo}#{n}: not started, its worktree was kept: {WORKTREES / session}")
         return
-    args = ["--permission-mode", "auto", "--settings", str(WORKTREES / ".hooks.json"),
+    args = ["--permission-mode", "auto", *model_flags("repo"), "--settings", str(WORKTREES / ".hooks.json"),
             "-n", session, "-w", session, f"/0xc0:work-issue {repo}#{n}"]
     if dry:
         log(f"{repo}#{n}: would start, in {d}: {shlex.join(['claude', *args])}")
