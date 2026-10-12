@@ -8,8 +8,9 @@ per issue, each in its own tab and worktree (README.md, Autopilot).
   autopilot toggle <repo>           turns it on or off
   autopilot state <repo>            prints on or off
   autopilot prepare <repo>          clones the repo if missing, puts it on an
-                                    up-to-date main, installs its plugins;
-                                    `.` for the workspace's plugins only
+                                    up-to-date main, installs its plugins,
+                                    trusts it in Claude Code; `.` for the
+                                    workspace's plugins and trust only
 
 <repo> is the repo's directory in the workspace, or its path.
 
@@ -28,8 +29,10 @@ import json
 import os
 import re
 import shlex
+import stat
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -47,6 +50,13 @@ LOW_BUDGET = 500
 CACHE = Path.home() / ".cache" / "0xc0"
 MARKETPLACE_STAMP = CACHE / "marketplace-updated"
 MARKETPLACE_FRESH = 120
+CLAUDE_JSON = Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home()) / ".claude.json"
+# Claude Code's own new project entry: it reads one without filling in the keys it lacks.
+NEW_PROJECT = {"allowedTools": [], "mcpContextUris": [], "mcpServers": {},
+               "enabledMcpjsonServers": [], "disabledMcpjsonServers": [],
+               "hasTrustDialogAccepted": False, "hasClaudeMdExternalIncludesApproved": False,
+               "hasClaudeMdExternalIncludesWarningShown": False}
+CONFIG_LOCK_STALE = 10
 
 QUERY = """
 query($owner: String!, $name: String!) {
@@ -301,13 +311,81 @@ def round_(d, repo, name, launched, dry):
 
 def prepare(d):
     """Gets the clone ready for its sessions. It stays at its path, which
-    holds every worktree session's plugin records, memory and approvals."""
+    holds every worktree session's plugin records, trust, memory and
+    approvals."""
     if d != ROOT:
         if not (d / ".git").is_dir():
             log(f"{d.name}: cloning {ORG}/{d.name}")
             run("mise", "exec", "--", "gh", "repo", "clone", f"{ORG}/{d.name}", str(d), cwd=ROOT)
         to_main(d)
     plugins(d)
+    trust(d)  # after `claude plugin list`, which creates a new machine's ~/.claude.json
+
+
+def trust(d):
+    """Accepts Claude Code's trust dialog for the clone, which a new repo's
+    first session stopped at: the org's repos are trusted (#136). Its
+    worktree sessions run on the clone's entry."""
+    origin = git(d, "remote", "get-url", "origin").stdout.strip()
+    if not re.search(rf"[:/]{ORG}/[^/]+$", origin):
+        log(f"{d.name}: not trusted, its origin is not in {ORG}: {origin or 'none'}")
+        return
+    if not CLAUDE_JSON.is_file():
+        log(f"{d.name}: not trusted, there is no {CLAUDE_JSON} yet")
+        return
+    lock = Path(f"{CLAUDE_JSON}.lock")
+    if not take_config_lock(lock):
+        log(f"{d.name}: not trusted, {lock} stayed held")
+        return
+    try:
+        config = json.loads(CLAUDE_JSON.read_text(encoding="utf-8"))
+        project = config.setdefault("projects", {}).setdefault(str(d), dict(NEW_PROJECT))
+        if project.get("hasTrustDialogAccepted") is True:
+            return
+        project["hasTrustDialogAccepted"] = True
+        # Claude Code's JSON.stringify(config, null, 2): the rest stays byte for byte.
+        replace_config(json.dumps(config, indent=2, ensure_ascii=False))
+    finally:
+        lock.rmdir()
+    log(f"{d.name}: trusted in {CLAUDE_JSON}")
+
+
+def take_config_lock(lock):
+    """True once taken. Claude Code writes its config under proper-lockfile's
+    lock, a directory its holder keeps fresh and another takes over once it
+    is stale: a write that skipped it could lose a session's, or a session
+    ours."""
+    for _ in range(100):
+        try:
+            lock.mkdir()
+            return True
+        except FileExistsError:
+            pass
+        try:
+            if time.time() - lock.stat().st_mtime > CONFIG_LOCK_STALE:
+                lock.rmdir()
+                continue
+        except FileNotFoundError:
+            continue
+        time.sleep(0.1)
+    return False
+
+
+def replace_config(text):
+    """A temporary file beside it, then a rename: a session never reads it
+    half written."""
+    target = CLAUDE_JSON.resolve()
+    fd, tmp = tempfile.mkstemp(dir=target.parent, prefix=f".{target.name}.")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+            f.flush()
+            os.fsync(f.fileno())
+        os.chmod(tmp, stat.S_IMODE(target.stat().st_mode))
+        os.replace(tmp, target)
+    except BaseException:
+        os.unlink(tmp)
+        raise
 
 
 def to_main(d):

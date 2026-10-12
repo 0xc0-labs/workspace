@@ -23,7 +23,18 @@ ready, as `bin/autopilot prepare <repo>` does:
   work, is someone's: it leaves it and says so;
 - it installs the plugins the repo enables that have no record for its path,
   and updates `0xc0`, which Claude Code would otherwise update only after a
-  session had started on the old one.
+  session had started on the old one;
+- it trusts the clone in Claude Code, as accepting "Do you trust the files
+  in this folder?" there would: `hasTrustDialogAccepted` for its path in
+  `~/.claude.json`, or `$CLAUDE_CONFIG_DIR/.claude.json`. A repo the org
+  added later had no such record, so its first session, or its autopilot's
+  first, stopped at that dialog until the operator accepted it by hand, and
+  the org's repos are trusted (operator decision, 2026-10-12; #136). It
+  trusts only a clone whose origin is in `0xc0-labs`, the workspace
+  included, and its worktree sessions run on its entry. A clone already
+  trusted leaves the file untouched; otherwise it sets that flag alone,
+  under Claude Code's own lock on the file (`.claude.json.lock`), through a
+  temporary file renamed over it, since running sessions write it too.
 
 Then, every minute, it:
 
@@ -111,7 +122,8 @@ session by it.
 with no reinstall. It has mise trust every config under
 `~/git/github/0xc0-homelab/`, so a new worktree's `mise.toml` asks for no
 `mise trust`, creates `.worktrees/`, and runs `bin/autopilot prepare` for
-every org repo and for the workspace.
+every org repo and for the workspace, which also trusts each in Claude Code
+(Autopilot, above).
 
 The keys go in your own Herdr `config.toml` (`prefix+a` and `prefix+shift+a`
 are free in the defaults), then `prefix+shift+r` reloads it:
