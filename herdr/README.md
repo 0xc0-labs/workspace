@@ -43,6 +43,9 @@ Then, every minute, it:
 
 1. closes the tab of each session that printed its last line,
    `work-issue: done <repo>#<n>` or `work-issue: stopped <repo>#<n>: <reason>`,
+   alone on its line (only whitespace and Claude Code's `⏺` bullet may come
+   before it; a sentence that quotes it does not count; `autopilot
+   --self-test` checks this),
    and removes that session's worktree if it has no uncommitted changes and
    no commit missing from `origin`: a clean worktree whose HEAD is already in
    `origin/main` goes at once, whatever its branch, even one never pushed
