@@ -190,24 +190,34 @@ server whole, every database at once, so a nightly logical dump per database
 lets one application be restored alone. An application that needs another
 engine version gets its own server, as the exception.
 
-**Mautic runs as one instance, no tenants** (operator decision, 2026-10-02;
-gitops#73).
-The official image's three roles (web, cron, worker) run as containers of one
-pod, sharing one Longhorn RWO volume, so there is no RWX volume and no NFS
-share-manager. Its database is in the shared MariaDB. It is public at
-`mautic.0xc0.cc` for what contacts reach. Every admin path (`/s`, the
+**One Mautic per site that turns on marketing automation** (operator
+decision, 2026-10-13; workspace#171), not one shared instance as decided on
+2026-10-02 (gitops#73): a contact can belong to several sites, and one
+Mautic cannot keep each site's contacts, consent and unsubscribes apart;
+each site's contacts belong to that site's business; and Mautic has one
+mailer per instance, so a shared one cannot send with each domain's own
+key. The shared instance at `mautic.0xc0.cc` is retired. Every instance is
+deployed from one common base in `gitops`, with its own database in the
+shared MariaDB and its own sending key on its site's domain (email,
+above). In each, the official image's three roles (web, cron, worker) run
+as containers of one pod, sharing one Longhorn RWO volume, so there is no
+RWX volume and no NFS share-manager. What contacts reach is public on the
+site's domain, at `mautic.<site domain>`. Every admin path (`/s`, the
 installer, the API) answers 403 there, with no hint of the internal name
-(operator decision, 2026-10-02; gitops#78), and is reached only at
-`mautic.int.0xc0.cc`, WARP only, so its login is never on the internet. It runs from `apps/`, under its own narrower
+(operator decision, 2026-10-02; gitops#78), and is reached only at the
+instance's own name under `int.0xc0.cc`, WARP only, so its login is never
+on the internet. Each runs from `apps/`, under the applications' narrower
 `AppProject`.
 
 **Leads reach Mautic through Payload** (operator decision, 2026-10-13;
 workspace#168). A site's forms and their submissions are Payload documents.
-A Payload job upserts each submission's contact in Mautic, through the API
-on Mautic's internal Service, then adds it to the segment and tags its form
-names. So a frontend talks to Payload alone, and a submission is stored
-before Mautic sees it. It is one way: nothing comes back from Mautic, and
-unsubscribes stay Mautic's.
+A Payload job upserts each submission's contact in the tenant's own Mautic,
+through the API on that Mautic's internal Service, then adds it to the
+segment and tags its form names. Payload reads that Mautic's URL and
+credentials from the tenant's secrets, `apps/payload/tenants/<slug>/mautic`,
+not from one platform-wide setting (workspace#171). So a frontend talks to
+Payload alone, and a submission is stored before Mautic sees it. It is one
+way: nothing comes back from Mautic, and unsubscribes stay Mautic's.
 
 **Payload CMS runs as one multi-tenant instance** (operator decision,
 2026-10-09; workspace#64), the backend of several frontends: one tenant
@@ -225,9 +235,14 @@ old one; one replica for now.
 forms and leads, and gated resources too. **Every capability is generic**:
 it is built once and configured per tenant in the admin, and no code is
 specific to one tenant. A tenant is data, its copy, plans and roles, so a
-new site that uses what exists needs no new code. A tenant's own secrets
-(its Stripe keys, its Discord bot and OAuth secret, its Resend key) live in
-Vault at `apps/payload/tenants/<slug>/`, and staging's at
+new site that uses what exists needs no new code. **Each capability is
+switched on per tenant** (operator decision, 2026-10-13; workspace#171), in
+the tenant's settings, and is off by default: some sites will not need one
+(marketing automation and its Mautic, for one). A capability that is off
+is invisible to that tenant: its collections are unreadable and hidden in
+the admin, its endpoints answer `404`, and its jobs stay idle. A tenant's
+own secrets (its Stripe keys, its Discord bot and OAuth secret, its Resend
+key) live in Vault at `apps/payload/tenants/<slug>/`, and staging's at
 `apps/payload-staging/tenants/<slug>/`. Vault Secrets Operator syncs them
 for Payload, which resolves a tenant's by its slug. The `apps` policy
 already reads everything under `apps/<namespace>/`, so a new tenant needs no
