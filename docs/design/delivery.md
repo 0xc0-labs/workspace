@@ -142,9 +142,14 @@ which the `apps` role already covers. It is reached over WARP only, at
 tenants and test users, reset when needed; later, once prod
 has content, a copy of prod without its users collection, run by the
 operator. Applications without staging keep everything in `prod/`:
-Mautic as it is, and `offby1.cc` with its pin written by its releases
-(above). Each staging environment doubles its application's memory in the
-cluster.
+`offby1.cc`, with its pin written by its releases (above). Each staging
+environment doubles its application's memory in the cluster. An
+application deployed once per site keeps its common base in
+`apps/<app>/base/` and one overlay per site at `apps/<app>/<site>/`, in
+the namespace `<app>-<site>`, `<site>` being the site's name as a
+session's is, dots to dashes (operator decision, 2026-10-13;
+workspace#171). Mautic is the first: `apps/mautic/artistlabco-com/`, in
+`mautic-artistlabco-com`.
 
 **Migrations run before the new version, from the same image.** An Argo CD
 Sync hook in wave 1, before the Deployment in wave 2, runs `payload migrate`
