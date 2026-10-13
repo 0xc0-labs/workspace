@@ -112,6 +112,19 @@ playbook (operator decision, 2026-09-29).
 - **Portals** (OpenObserve, ArgoCD, Headlamp): internal, reached only over WARP.
   None has a public record, and none is published behind Cloudflare Access
   (operator decision, 2026-09-29).
+- **A front's staging behind Access** (operator decision, 2026-10-13;
+  workspace#176): a front's staging, and only that, can be published on a
+  public name of its own domain, `staging.<domain>`, behind a Cloudflare
+  Access application, for people without WARP. The first is
+  `staging.artistlabco.com`, for ARTIST LAB's founders. Its viewers log in
+  with a one-time PIN sent to their email, and the session lasts 24 hours.
+  The application and its policy are OpenTofu's, in `infrastructure`. The
+  viewers are an Access group that the operator manages in Cloudflare's
+  dashboard: OpenTofu creates the group and ignores its membership, so
+  adding a person needs no change in any repo. The Access application exists
+  before the name has a public record: `infrastructure` is applied before
+  `gitops` routes the name. The internal name ([delivery](delivery.md))
+  stays.
 - **Internal services** (operator decision, 2026-09-30): a path of their own,
   separated by network. A second VIP on the LBs, `10.10.4.9`, sends its 443
   to Traefik's `internal` entrypoint; Cloudflare Gateway resolves every
