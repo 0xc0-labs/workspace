@@ -155,17 +155,34 @@ sync it runs before its namespace and secrets exist, and never finishes
 migration is expand and contract, so the previous version works on the new
 schema and rolling back the image is safe.
 
-**The frontends render on the server.** A frontend is a Next.js application
-in the cluster that reads Payload through its internal Service, with a
-read-only API key of its tenant, kept in Vault: the browser never calls the
-API, and what a page needs from it, a form or a search, goes through the
-frontend's own server. Staging's frontend reads staging's Payload, and the
+**The frontends render on the server, each as a BFF.** A frontend is a
+Next.js application in the cluster and a backend for frontend: its own
+server is the only backend its pages talk to (operator decision, 2026-10-13;
+workspace#168). The browser never calls Payload, and what a page needs from
+it, a form, a search or a member's own page, goes through the frontend's
+server. That server calls Payload's internal Service in one of two ways:
+
+- **As its tenant**, for public content and form submissions, with the API
+  key of its tenant's client in Payload's `api-clients` auth collection, one
+  client per tenant and environment, kept in Vault.
+- **As the member**, for a member's own actions, with that member's Payload
+  token, which the frontend keeps in an httpOnly cookie on its own domain:
+  Payload's access control decides what a member reaches, and no script in
+  the browser reads the token.
+
+This replaces the read-only API key of workspace#68: a frontend now writes
+too, its forms' submissions and its members' actions. Stripe's webhooks
+need a public URL, so they reach a route of the frontend, which forwards
+each one raw to Payload; Payload verifies its signature, which Stripe
+computes over the exact body.
+Staging's frontend reads staging's Payload, and the
 network policies let each Payload be reached only by the frontends of its
 environment. The build never reads Payload, and nothing that differs between
 environments is baked into the image (no `NEXT_PUBLIC_` value that does), so
 one image serves both. Outside, only the uploaded files are public, from R2
 at `media.0xc0.cc` (workspace#88); the API, GraphQL and authentication stay
-inside, and the admin stays at `payload.int.0xc0.cc`.
+inside, and the admin stays at `payload.int.0xc0.cc`. A public Payload API
+stays [discarded](../discarded.md).
 
 **Observable as every application is, in both environments.** The rule in
 [platform](platform.md)

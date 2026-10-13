@@ -201,16 +201,39 @@ installer, the API) answers 403 there, with no hint of the internal name
 `mautic.int.0xc0.cc`, WARP only, so its login is never on the internet. It runs from `apps/`, under its own narrower
 `AppProject`.
 
+**Leads reach Mautic through Payload** (operator decision, 2026-10-13;
+workspace#168). A site's forms and their submissions are Payload documents.
+A Payload job upserts each submission's contact in Mautic, through the API
+on Mautic's internal Service, then adds it to the segment and tags its form
+names. So a frontend talks to Payload alone, and a submission is stored
+before Mautic sees it. It is one way: nothing comes back from Mautic, and
+unsubscribes stay Mautic's.
+
 **Payload CMS runs as one multi-tenant instance** (operator decision,
 2026-10-09; workspace#64), the backend of several frontends: one tenant
 per frontend, through Payload's multi-tenant plugin. Its code is the
-`payload` repo, private like `artistlabco.com`. The frontends read its API
-inside the cluster ([delivery](delivery.md); workspace#68), and only the
+`payload` repo, private like `artistlabco.com`. The frontends call its API
+inside the cluster, as its BFFs ([delivery](delivery.md)), and only the
 uploaded files are public, served from R2 at `media.0xc0.cc`: nothing of
 Payload itself is (workspace#88). The admin is reached only at
 `payload.int.0xc0.cc`, WARP only, as Mautic's admin is. With its media in R2
 it keeps nothing on disk, so a rollout starts the new pod before stopping the
 old one; one replica for now.
+
+**Payload is the whole backend of every site** (operator decision,
+2026-10-13; workspace#168), not only its content: members, subscriptions,
+forms and leads, and gated resources too. **Every capability is generic**:
+it is built once and configured per tenant in the admin, and no code is
+specific to one tenant. A tenant is data, its copy, plans and roles, so a
+new site that uses what exists needs no new code. A tenant's own secrets
+(its Stripe keys, its Discord bot and OAuth secret, its Resend key) live in
+Vault at `apps/payload/tenants/<slug>/`, and staging's at
+`apps/payload-staging/tenants/<slug>/`. Vault Secrets Operator syncs them
+for Payload, which resolves a tenant's by its slug. The `apps` policy
+already reads everything under `apps/<namespace>/`, so a new tenant needs no
+change in Vault. The mail a tenant sends to its public, magic links and
+confirmations, goes out from that tenant's domain with the tenant's own key,
+not Payload's, so the platform still never sends as a site (email, above).
 
 **One shared PostgreSQL for the applications that need it** (operator
 decision, 2026-10-09; workspace#64): Payload does not support MySQL or
