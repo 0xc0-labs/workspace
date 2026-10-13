@@ -136,8 +136,9 @@ keeps all of it in `prod/`; when it gains staging, the shared part moves to
 environment: prod keeps the application's name and namespace, `<app>`;
 staging is `<app>-staging`. Staging has its own database on the shared
 server, its own bucket, and its own `apps/<app>-staging/` path in Vault,
-which the `apps` role already covers. It is reached over WARP only, at
-`<app>-staging.int.0xc0.cc`, and is observed as prod is, its signals tagged
+which the `apps` role already covers. It is reached over WARP, at
+`<app>-staging.int.0xc0.cc` (a front's can also be published behind Access:
+[network](network.md)), and is observed as prod is, its signals tagged
 `deployment.environment=staging`. Its data is a seed versioned in `payload`:
 tenants and test users, reset when needed; later, once prod
 has content, a copy of prod without its users collection, run by the
