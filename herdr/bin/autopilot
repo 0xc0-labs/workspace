@@ -12,6 +12,7 @@ per issue, each in its own tab and worktree (README.md, Autopilot).
                                     up-to-date main, installs its plugins,
                                     trusts it in Claude Code; `.` for the
                                     workspace's plugins and trust only
+  autopilot --self-test             checks how the last line is recognised
 
 <repo> is the repo's directory in the workspace, or its path.
 
@@ -168,15 +169,44 @@ def ready(repo):
     return [(n, at) for _, n, at in sorted(found)]
 
 
+def find_last_line(repo, n, screen):
+    """The `done|stopped` line alone on a screen line, searched from the bottom."""
+    pattern = re.compile(rf"(?:done {re.escape(repo)}#{n}|stopped {re.escape(repo)}#{n}: \S.*)")
+    for line in reversed(screen.splitlines()):
+        text = line.strip().removeprefix("\u23fa").strip()
+        m = re.fullmatch(r"work-issue: (.+)", text)
+        if m and pattern.fullmatch(m.group(1)):
+            return m.group(1)
+    return None
+
+
 def last_line(repo, n, pane):
     """The session's `work-issue: done|stopped` line, if it printed it."""
     screen = run(HERDR, "agent", "read", pane, "--source", "recent-unwrapped", "--lines", "80")
-    pattern = re.compile(rf"work-issue: ((?:done|stopped) {re.escape(repo)}#{n}\b.*)$")
-    for line in reversed(screen.splitlines()):
-        m = pattern.search(line.strip())
-        if m:
-            return m.group(1)
-    return None
+    return find_last_line(repo, n, screen)
+
+
+def self_test():
+    mention = "The `work-issue: done payload#82` line also waits until then."
+    cases = [
+        ("payload", 82, "work-issue: done payload#82", "done payload#82"),
+        ("payload", 82, "  work-issue: done payload#82  ", "done payload#82"),
+        ("payload", 82, "work-issue: stopped payload#82: checks red", "stopped payload#82: checks red"),
+        ("payload", 82, "\u23fa work-issue: done payload#82", "done payload#82"),
+        ("payload", 82, "\u23fa work-issue: stopped payload#82: no access", "stopped payload#82: no access"),
+        ("payload", 82, mention, None),
+        ("payload", 82, "work-issue: done payload#82 and more", None),
+        ("payload", 82, "work-issue: stopped payload#82:", None),
+        ("payload", 8, "work-issue: done payload#82", None),
+        ("payload", 82, "work-issue: done payload#8", None),
+        ("payload", 82, "work-issue: done other#82", None),
+        ("payload", 82, f"work-issue: done payload#82\n{mention}\n> prompt", "done payload#82"),
+    ]
+    failed = [c for c in cases if find_last_line(c[0], c[1], c[2]) != c[3]]
+    for repo, n, screen, want in failed:
+        print(f"FAIL {repo}#{n} {screen!r}: want {want!r}, got {find_last_line(repo, n, screen)!r}")
+    print(f"{len(cases) - len(failed)}/{len(cases)} passed")
+    return not failed
 
 
 def clean_up(d, session, dry):
@@ -648,6 +678,8 @@ def turn_on(d):
 
 
 def main(argv):
+    if argv == ["--self-test"]:
+        sys.exit(0 if self_test() else 1)
     if len(argv) < 2 or argv[0] not in ("run", "start", "toggle", "state", "prepare"):
         sys.exit(__doc__.strip().split("\n\n")[1])
     d = Path(os.path.normpath(ROOT / argv[1]))
