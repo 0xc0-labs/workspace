@@ -240,7 +240,14 @@ switched on per tenant** (operator decision, 2026-10-13; workspace#171), in
 the tenant's settings, and is off by default: some sites will not need one
 (marketing automation and its Mautic, for one). A capability that is off
 is invisible to that tenant: its collections are unreadable and hidden in
-the admin, its endpoints answer `404`, and its jobs stay idle. A tenant's
+the admin, its endpoints answer `404`, and its jobs stay idle. **A
+capability requires only what it cannot work without** (operator decision,
+2026-10-16; workspace#184): anything gated by identity (resources, videos,
+community roles) requires `members`, and nothing more. Plans never are a
+requirement: where `subscriptions` is on, gated content and community roles
+may be narrowed to some plans, and without it, or with no plans named, any
+`active` membership gets in. Who gets in is decided in one place in Payload,
+`src/lib/entitlements.ts`, which every gated capability uses. A tenant's
 own secrets (its Stripe keys, its Discord bot and OAuth secret, its Resend
 key) live in Vault at `apps/payload/tenants/<slug>/`, and staging's at
 `apps/payload-staging/tenants/<slug>/`. Vault Secrets Operator syncs them
