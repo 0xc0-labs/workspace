@@ -268,6 +268,15 @@ library IDs, plans, content) is set in the admin too, and capabilities stay
 the super-admin's. A tenant's admins configure its integrations and keys,
 not only super-admins.
 
+**Each tenant brings its own accounts** (operator decision, 2026-10-17;
+workspace#187). Its Stripe, Bunny, Discord, Resend and storage are the
+tenant's, billed to it, and the platform lends none of its own; each
+site's Mautic, deployed by the platform, stays as it is. Integrations the
+platform provides, such as Stripe Connect, one platform bot, or the
+platform's own video, storage or mail with a quota per tenant, are not
+built until there are tenants who pay for them. Each would be one more
+integration of the same port, beside the tenant's own.
+
 **A key entered in the admin lives in Vault, written and read by Payload.**
 Payload logs in with its own Kubernetes identity and a role of its own in
 the `vault` repo, which reaches only `tenants/` under its own namespace.
