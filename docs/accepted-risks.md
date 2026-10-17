@@ -54,3 +54,10 @@ explicit decision from the operator.
 - A portal on the public path (`websecure`) stays internal only by having no
   public record. Every internal service goes on the internal path instead,
   which the public tunnel cannot reach.
+- Payload's pods may reach HTTPS 443 on the public internet, except private,
+  reserved and cluster ranges (operator decision, 2026-10-17;
+  workspace#187): a tenant picks its integrations in the admin, so no rule
+  per provider is possible. Exfiltration is already open through
+  Cloudflare's ranges, and internal services stay closed at the network
+  layer. Payload refuses an endpoint that is not HTTPS or that resolves to a
+  private address.

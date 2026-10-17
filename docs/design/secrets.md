@@ -15,12 +15,14 @@ is gone.
   `main`, and a policy that names what it reads. No Vault credential and no
   Actions secret is stored anywhere.
 - **The cluster:** each component reads through Vault Secrets Operator, with a
-  Kubernetes auth role per namespace. What RKE2 and ArgoCD boot with, Ansible
-  reads from Vault in CI.
+  Kubernetes auth role per namespace, except Payload's tenant keys, which it
+  reads and writes itself ([platform](platform.md)). What RKE2 and ArgoCD
+  boot with, Ansible reads from Vault in CI.
 - **Locally:** the scripts read Vault with the operator's token (`vault login
   -no-print`, over WARP), into the environment only.
 - **Writing and rotating:** the operator does it by hand, in Vault (`vault`
-  repo, README). The Cloudflare token is the one credential that crosses
+  repo, README), except a tenant's integration keys, which its admins enter
+  in Payload. The Cloudflare token is the one credential that crosses
   engines: one copy in `ci/shared/cloudflare` and one in
   `platform/shared/cloudflare`, rotated together.
 - **Outside Vault:** what restoring Vault takes cannot live in it. The unseal
