@@ -214,10 +214,10 @@ workspace#168). A site's forms and their submissions are Payload documents.
 A Payload job upserts each submission's contact in the tenant's own Mautic,
 through the API on that Mautic's internal Service, then adds it to the
 segment and tags its form names. Payload reads that Mautic's URL and
-credentials from the tenant's secrets, `apps/payload/tenants/<slug>/mautic`,
-not from one platform-wide setting (workspace#171). So a frontend talks to
-Payload alone, and a submission is stored before Mautic sees it. It is one
-way: nothing comes back from Mautic, and unsubscribes stay Mautic's.
+credentials from what the tenant entered in its admin (below), not from one
+platform-wide setting (workspace#171). So a frontend talks to Payload
+alone, and a submission is stored before Mautic sees it. It is one way:
+nothing comes back from Mautic, and unsubscribes stay Mautic's.
 
 **Payload CMS runs as one multi-tenant instance** (operator decision,
 2026-10-09; workspace#64), the backend of several frontends: one tenant
@@ -237,25 +237,63 @@ it is built once and configured per tenant in the admin, and no code is
 specific to one tenant. A tenant is data, its copy, plans and roles, so a
 new site that uses what exists needs no new code. **Each capability is
 switched on per tenant** (operator decision, 2026-10-13; workspace#171), in
-the tenant's settings, and is off by default: some sites will not need one
-(marketing automation and its Mautic, for one). A capability that is off
-is invisible to that tenant: its collections are unreadable and hidden in
-the admin, its endpoints answer `404`, and its jobs stay idle. **A
-capability requires only what it cannot work without** (operator decision,
-2026-10-16; workspace#184): anything gated by identity (resources, videos,
-community roles) requires `members`, and nothing more. Plans never are a
-requirement: where `subscriptions` is on, gated content and community roles
-may be narrowed to some plans, and without it, or with no plans named, any
-`active` membership gets in. Who gets in is decided in one place in Payload,
-`src/lib/entitlements.ts`, which every gated capability uses. A tenant's
-own secrets (its Stripe keys, its Discord bot and OAuth secret, its Resend
-key) live in Vault at `apps/payload/tenants/<slug>/`, and staging's at
-`apps/payload-staging/tenants/<slug>/`. Vault Secrets Operator syncs them
-for Payload, which resolves a tenant's by its slug. The `apps` policy
-already reads everything under `apps/<namespace>/`, so a new tenant needs no
-change in Vault. The mail a tenant sends to its public, magic links and
-confirmations, goes out from that tenant's domain with the tenant's own key,
-not Payload's, so the platform still never sends as a site (email, above).
+the tenant's settings, by a super-admin alone, and is off by default: some
+sites will not need one (marketing automation and its Mautic, for one). A
+capability that is off is invisible to that tenant: its collections are
+unreadable, its endpoints answer `404`, and its jobs stay idle. The admin's
+menu hides it for the tenant selected in the tenant selector, super-admins
+included; with no tenant selected, everything shows (operator decision,
+2026-10-17; workspace#187). **A capability requires only what it cannot
+work without** (operator decision, 2026-10-16; workspace#184): anything
+gated by identity (resources, videos, community roles) requires `members`,
+and nothing more. Plans never are a requirement: where `subscriptions` is
+on, gated content and community roles may be narrowed to some plans, and
+without it, or with no plans named, any `active` membership gets in. Who
+gets in is decided in one place in Payload, `src/lib/entitlements.ts`,
+which every gated capability uses.
+
+**A tenant's integrations are set in Payload's admin, with nothing per
+tenant in gitops or Vault** (operator decision, 2026-10-17; workspace#187).
+The platform keeps what Payload needs to start and what is the operator's:
+the database, `app` (`payload-secret`, `seed-password`), the admin's own
+email (invitations and password resets), RUM, `ghcr-pull`, each site's
+Mautic as a deployment, and the network. Everything else a tenant needs
+from an outside service, the tenant sets in the admin, choosing the
+integration of each capability and entering its keys: payments (Stripe),
+video (Bunny), community (Discord), marketing automation (Mautic's URL and
+credentials), the site's own email (Resend), and the storage of its media
+and of its resources. Another integration is added in Payload, without a
+change to the capability that picks it. What holds no secret (capabilities,
+library IDs, plans, content) is set in the admin too, and capabilities stay
+the super-admin's. A tenant's admins configure its integrations and keys,
+not only super-admins.
+
+**A key entered in the admin lives in Vault, written and read by Payload.**
+Payload logs in with its own Kubernetes identity and a role of its own in
+the `vault` repo, which reaches only `tenants/` under its own namespace.
+It keeps a tenant's keys at `apps/<namespace>/tenants/<slug>/<name>`, the
+paths tenants already use (`apps/payload/` in prod, `apps/payload-staging/`
+in staging), and resolves them by the tenant's slug; Vault Secrets Operator
+does not sync them. The database never holds a value, only who set it and
+when, and the admin never shows one back. A new tenant or integration needs
+no change in gitops or Vault. The mail a tenant sends to its public, magic
+links and confirmations, goes out from that tenant's domain with the key
+the tenant entered, not Payload's, so the platform still never sends as a
+site (email, above).
+
+**A tenant's storage is its own, in any S3-compatible provider**: one for
+its media and one for its resources. Media may have a public URL, and
+without one Payload serves the files. The R2 buckets above keep the files
+that exist, and artistlab's storage points at its current bucket.
+
+**Payload's egress is HTTPS on 443 to the public internet**, except
+private, reserved and cluster ranges (operator decision, 2026-10-17;
+workspace#187): the services a tenant picks are outside, and the cluster
+needs no rule per provider. Internal services stay closed at the network
+layer, and Payload refuses an endpoint that is not HTTPS or that resolves
+to a private address, with timeouts and size limits. An in-cluster
+integration (a site's Mautic) or one on another port keeps its own rule.
+The risk is taken knowingly ([accepted risks](../accepted-risks.md)).
 
 **One shared PostgreSQL for the applications that need it** (operator
 decision, 2026-10-09; workspace#64): Payload does not support MySQL or
