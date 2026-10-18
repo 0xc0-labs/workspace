@@ -246,11 +246,15 @@ included; with no tenant selected, everything shows (operator decision,
 2026-10-17; workspace#187). **A capability requires only what it cannot
 work without** (operator decision, 2026-10-16; workspace#184): anything
 gated by identity (resources, videos, community roles) requires `members`,
-and nothing more. Plans never are a requirement: where `subscriptions` is
-on, gated content and community roles may be narrowed to some plans, and
-without it, or with no plans named, any `active` membership gets in. Who
-gets in is decided in one place in Payload, `src/lib/entitlements.ts`,
-which every gated capability uses.
+and nothing more. **A membership says who belongs to a site, never who
+pays** (operator decision, 2026-10-18; workspace#197): payments are read
+from the subscriptions when access is decided. Where `subscriptions` is
+on, a gated record names its audience: every member, every subscriber, or
+some plans, as Ghost's visibility levels do (members, paid members,
+specific tiers), and community roles follow the same levels. Without
+`subscriptions`, every `active` member gets in. Who gets in is decided in
+one place in Payload, `src/lib/entitlements.ts`, which every gated
+capability uses.
 
 **A tenant's integrations are set in Payload's admin, with nothing per
 tenant in gitops or Vault** (operator decision, 2026-10-17; workspace#187).
