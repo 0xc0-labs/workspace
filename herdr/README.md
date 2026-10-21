@@ -121,12 +121,12 @@ that read a deleted file no longer dies on it.
 tab, `dead` when the tab is there and the loop exited, and `off` without the
 tab. `start` closes a dead tab and opens a new one.
 
-`autopilot.conf` holds each repo's slots: two in the application repos, one
-in the others. Picking the repo again, or closing the `autopilot` tab, turns
-it off: nothing more starts, and the running sessions finish in their tabs.
-To hold one issue, set it Blocked on the board. An issue it started once is
-not started again until it is turned off and on, even if its session left it
-Ready.
+`autopilot.conf` holds each repo's slots: two in the application repos and
+in `packages`, one in the others. Picking the repo again, or closing the
+`autopilot` tab, turns it off: nothing more starts, and the running
+sessions finish in their tabs. To hold one issue, set it Blocked on the
+board. An issue it started once is not started again until it is turned off
+and on, even if its session left it Ready.
 
 Its look at the board is one GraphQL query, one point of the GitHub API's
 hourly 5,000, made only when a slot is free. Below 500 points left, it starts
