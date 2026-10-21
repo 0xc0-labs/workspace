@@ -19,13 +19,13 @@ it too.
 | `vault/`         | `vault`           | OpenTofu configuration of the cluster's Vault   |
 | `packages/`      | `packages`        | shared code as versioned npm packages (`@0xc0-labs/<name>`) |
 | `offby1.cc/`     | `offby1.cc`       | Next.js landing page for offby1.cc              |
-| `payload/`       | `payload`         | Payload CMS, multi-tenant backend of the fronts |
-| `artistlabco.com/` | `artistlabco.com` | the artist's site, a Payload frontend         |
+| `payload/`       | `payload`         | Payload CMS, being retired (0xc0-labs/workspace#204) |
+| `artistlabco.com/` | `artistlabco.com` | the artist's site and its Strapi, in `cms/`   |
 | `app-*/`         | various           | applications                                    |
 
 Dependency order: `.github` → `infrastructure` → `gitops` → `vault` →
-`packages` → the applications (`offby1.cc`, `payload`, `artistlabco.com`,
-`app-*`), which pin its packages.
+`packages` → the applications (`offby1.cc`, `artistlabco.com`, `app-*`, and
+`payload` until it is retired), which pin its packages.
 `claude-config` stands apart: nothing depends on it at deploy time.
 A downstream change is not merged until the upstream one is applied.
 
@@ -337,7 +337,8 @@ What runs today:
 - **OpenObserve** for logs, metrics and traces, fed by the OpenTelemetry
   Operator's collectors.
 - **The applications**: the `offby1.cc` landing page, Mautic and Payload
-  CMS, from `gitops/apps/`. Every application repo carries the `app`
-  topic.
+  CMS, from `gitops/apps/`; each site's own Strapi, in `cms/` of its repo
+  (`artistlabco.com`'s first), is replacing Payload (0xc0-labs/workspace#202,
+  #204). Every application repo carries the `app` topic.
 
 Every VM carries `prevent_destroy`.
