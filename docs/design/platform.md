@@ -109,7 +109,7 @@ full standard is in the `vault` repo's README.
 decision, 2026-09-30; .github#6): auth methods and roles, policies, secret
 engines. It is downstream of `gitops`, which deploys Vault, so the order stays
 linear: `.github → infrastructure → gitops → vault →` the applications
-(`offby1.cc`, `payload`, `artistlabco.com`).
+(`offby1.cc`, `artistlabco.com`, and `payload` until it is retired).
 Its CI logs in with the job's GitHub OIDC token (JWT auth,
 `hashicorp/vault-action`): no Vault credential is stored. A PR plans
 read-only from any ref (role `terraform-plan`); only `main`, inside the
@@ -147,18 +147,19 @@ data disks included, and that is what the timed restore tests.
 anything else an application keeps as objects. Longhorn keeps the databases
 and what needs a filesystem; RustFS keeps only the OpenTofu state. One bucket
 per application and environment, named `<namespace>-<purpose>`
-(`payload-media`, `payload-staging-media`), created by `infrastructure`'s
-Cloudflare root with a western Europe location hint, its `r2.dev` URL off. A
-bucket whose files are public is attached to a hostname of ours
-(`media.0xc0.cc`) and served through Cloudflare's cache, with `nosniff` and a
-`default-src 'none'` CSP, so the application behind it need not be public.
-Staging's buckets have no hostname: the application serves their files, over
-WARP. Each application reads its bucket with an R2 token scoped to that
-bucket, created by the operator in Cloudflare and kept in
-`apps/<namespace>/`. With no files on disk, a volume no longer ties an
-application to one replica or to stopping before each rollout. R2 is free up
-to 10 GB, with no egress fees, and about 15 USD per TB beyond. It keeps no
-copies of its own, and nothing copies it elsewhere
+(`artistlabco-com-media`, `artistlabco-com-staging-media`), created by
+`infrastructure`'s Cloudflare root with a western Europe location hint, its
+`r2.dev` URL off. A bucket whose files are public is attached to a hostname
+of ours (`media.artistlabco.com`) and served through Cloudflare's cache,
+with `nosniff` and a `default-src 'none'` CSP, so the application behind it
+need not be public. Staging's buckets have no hostname: the application
+serves their files, over WARP. Each application reads its bucket with an R2
+token scoped to that bucket, created by the operator in Cloudflare and kept
+in `apps/<namespace>/`, or, for a site's Strapi, entered in its admin and
+kept where its integrations' keys are (below). With no files on disk, a
+volume no longer ties an application to one replica or to stopping before
+each rollout. R2 is free up to 10 GB, with no egress fees, and about 15 USD
+per TB beyond. It keeps no copies of its own, and nothing copies it elsewhere
 ([accepted risks](../accepted-risks.md)).
 
 **The applications send email through Resend, over SMTP** (operator
@@ -166,14 +167,15 @@ decision, 2026-10-12; workspace#92): `smtp.resend.com:587` with STARTTLS,
 region `eu-west-1`, never a provider's own API or DSN scheme, so moving to
 Amazon SES once the volume asks for it (Mautic's campaigns, or more than the
 free plan's 100 a day) changes credentials and DNS, never code. The
-platform's own mail (Payload's resets and invitations, internal tools) goes
-out from `0xc0.cc`; a site's mail to its public, from that site's domain,
-verified on its own: a site never sends as `0xc0.cc`, nor the platform as a
-site. Each sending domain's DKIM, its MAIL FROM subdomain (`send.`, so the
-apex keeps Cloudflare Email Routing's MX and SPF) and its DMARC record are
-OpenTofu's, in `infrastructure`. Each application and environment sends with
-its own key, sending access only and limited to its domain, created by the
-operator in Resend and kept at `apps/<namespace>/email`. Staging sends real
+platform's own mail (a CMS admin's invitations and password resets, internal
+tools) goes out from `0xc0.cc`; a site's mail to its public, from that
+site's domain, verified on its own: a site never sends as `0xc0.cc`, nor the
+platform as a site. Each sending domain's DKIM, its MAIL FROM subdomain
+(`send.`, so the apex keeps Cloudflare Email Routing's MX and SPF) and its
+DMARC record are OpenTofu's, in `infrastructure`. Each application and
+environment sends with its own key, sending access only and limited to its
+domain, created by the operator in Resend and kept at
+`apps/<namespace>/email`. Staging sends real
 mail, all of it to the operator's inbox (`EMAIL_REDIRECT_TO`, from Vault),
 marked as staging's: nothing reaches a test address or a real user.
 
@@ -209,111 +211,127 @@ instance's own name under `int.0xc0.cc`, WARP only, so its login is never
 on the internet. Each runs from `apps/`, under the applications' narrower
 `AppProject`.
 
-**Leads reach Mautic through Payload** (operator decision, 2026-10-13;
-workspace#168). A site's forms and their submissions are Payload documents.
-A Payload job upserts each submission's contact in the tenant's own Mautic,
-through the API on that Mautic's internal Service, then adds it to the
-segment and tags its form names. Payload reads that Mautic's URL and
-credentials from what the tenant entered in its admin (below), not from one
-platform-wide setting (workspace#171). So a frontend talks to Payload
-alone, and a submission is stored before Mautic sees it. It is one way:
-nothing comes back from Mautic, and unsubscribes stay Mautic's.
+**Each site runs its own Strapi, in its own repo** (operator decision,
+2026-10-20; workspace#203): Strapi 5, in `cms/` beside the site's front,
+deployed in the site's namespaces with its own database, buckets, keys and
+admin. It replaces the one multi-tenant Payload instance (operator decision,
+2026-10-09; workspace#64), the backend of several fronts through Payload's
+multi-tenant plugin: a client who buys a site cannot manage Payload's admin,
+and Strapi's is friendlier and can be branded. The multi-tenant Payload is
+[discarded](../discarded.md). `artistlabco.com`'s is the first Strapi, due
+before ARTIST LAB's launch on 1 November; Payload keeps running until
+workspace#204 retires it, once that Strapi runs in prod. A site's front calls
+its Strapi inside the cluster, as its BFF ([delivery](delivery.md)), with an
+API token: Strapi's public role grants nothing, and the API is never public.
+Only the uploaded files are public, from R2, and the admin: the public
+hostname serves the admin alone, at `cms.<site domain>` in prod and
+`cms-staging.<site domain>` in staging, behind a Cloudflare Access
+application, so the editors need no WARP, unlike Mautic's admin (operator
+decision, 2026-10-21; workspace#203). The application and its policy are
+OpenTofu's, in `infrastructure`, and its viewers are managed in Cloudflare's
+dashboard, as a front's staging's are ([network](network.md)). Strapi's
+telemetry is off.
 
-**Payload CMS runs as one multi-tenant instance** (operator decision,
-2026-10-09; workspace#64), the backend of several frontends: one tenant
-per frontend, through Payload's multi-tenant plugin. Its code is the
-`payload` repo, private like `artistlabco.com`. The frontends call its API
-inside the cluster, as its BFFs ([delivery](delivery.md)), and only the
-uploaded files are public, served from R2 at `media.0xc0.cc`: nothing of
-Payload itself is (workspace#88). The admin is reached only at
-`payload.int.0xc0.cc`, WARP only, as Mautic's admin is. With its media in R2
-it keeps nothing on disk, so a rollout starts the new pod before stopping the
-old one; one replica for now.
+**A site's Strapi is the whole backend of its site** (operator decision,
+2026-10-13; workspace#168, carried to Strapi 2026-10-20; workspace#203), not
+only its content: members, subscriptions, forms and leads, and gated
+resources too. **Every capability is generic**: a Strapi plugin of its own,
+`cms/src/plugins/<capability>`, with nothing of the site in its code. What is
+the site's, its copy, plans, roles and IDs, is set in the admin or is
+content, so a new site that uses what exists needs no new code. When a
+second site needs a capability, it moves as it is to
+`@0xc0-labs/strapi-plugin-<capability>` ([delivery](delivery.md)). **A
+site's Strapi carries the capabilities it uses and no others**: with one
+Strapi per site there is no tenant to switch a capability on for, which
+replaces the per-tenant switch of 2026-10-13 (workspace#171), and some sites
+will not need one (marketing automation and its Mautic, for one). **A
+capability requires only what it cannot work without** (operator decision,
+2026-10-16; workspace#184): anything gated by identity (resources, videos,
+community roles) requires `members`, and nothing more. **A membership says
+who belongs to a site, never who pays** (operator decision, 2026-10-18;
+workspace#197): payments are read from the subscriptions when access is
+decided. Where the site uses `subscriptions`, a gated record names its
+audience: every member, every subscriber, or some plans, as Ghost's
+visibility levels do (members, paid members, specific tiers), and community
+roles follow the same levels. Without `subscriptions`, every `active` member
+gets in. Who gets in is decided in one place in the site's Strapi, which
+every gated capability uses.
 
-**Payload is the whole backend of every site** (operator decision,
-2026-10-13; workspace#168), not only its content: members, subscriptions,
-forms and leads, and gated resources too. **Every capability is generic**:
-it is built once and configured per tenant in the admin, and no code is
-specific to one tenant. A tenant is data, its copy, plans and roles, so a
-new site that uses what exists needs no new code. **Each capability is
-switched on per tenant** (operator decision, 2026-10-13; workspace#171), in
-the tenant's settings, by a super-admin alone, and is off by default: some
-sites will not need one (marketing automation and its Mautic, for one). A
-capability that is off is invisible to that tenant: its collections are
-unreadable, its endpoints answer `404`, and its jobs stay idle. The admin's
-menu hides it for the tenant selected in the tenant selector, super-admins
-included; with no tenant selected, everything shows (operator decision,
-2026-10-17; workspace#187). **A capability requires only what it cannot
-work without** (operator decision, 2026-10-16; workspace#184): anything
-gated by identity (resources, videos, community roles) requires `members`,
-and nothing more. **A membership says who belongs to a site, never who
-pays** (operator decision, 2026-10-18; workspace#197): payments are read
-from the subscriptions when access is decided. Where `subscriptions` is
-on, a gated record names its audience: every member, every subscriber, or
-some plans, as Ghost's visibility levels do (members, paid members,
-specific tiers), and community roles follow the same levels. Without
-`subscriptions`, every `active` member gets in. Who gets in is decided in
-one place in Payload, `src/lib/entitlements.ts`, which every gated
-capability uses.
+**Leads reach Mautic through the site's Strapi** (operator decision,
+2026-10-13; workspace#168, carried to Strapi 2026-10-20; workspace#203). A
+site's forms and their submissions are content in its Strapi. A job in it
+upserts each submission's contact in the site's own Mautic, through the API
+on that Mautic's internal Service, then adds it to the segment and tags its
+form names. Strapi reads that Mautic's URL and credentials from what the
+site entered in its admin (below), not from one platform-wide setting
+(workspace#171). So a frontend talks to its Strapi alone, and a submission
+is stored before Mautic sees it. It is one way: nothing comes back from
+Mautic, and unsubscribes stay Mautic's.
 
-**A tenant's integrations are set in Payload's admin, with nothing per
-tenant in gitops or Vault** (operator decision, 2026-10-17; workspace#187).
-The platform keeps what Payload needs to start and what is the operator's:
-the database, `app` (`payload-secret`, `seed-password`), the admin's own
-email (invitations and password resets), RUM, `ghcr-pull`, each site's
-Mautic as a deployment, and the network. Everything else a tenant needs
-from an outside service, the tenant sets in the admin, choosing the
-integration of each capability and entering its keys: payments (Stripe),
-video (Bunny), community (Discord), marketing automation (Mautic's URL and
-credentials), the site's own email (Resend), and the storage of its media
-and of its resources. Another integration is added in Payload, without a
-change to the capability that picks it. What holds no secret (capabilities,
-library IDs, plans, content) is set in the admin too, and capabilities stay
-the super-admin's. A tenant's admins configure its integrations and keys,
-not only super-admins.
+**A site's integrations are set in its Strapi's admin, with nothing per
+site in gitops or Vault** (operator decision, 2026-10-17; workspace#187, for
+Payload; carried to Strapi 2026-10-21; workspace#203). The platform keeps
+what Strapi needs to start and what is the operator's: the database
+(`apps/<namespace>/database`), Strapi's own secrets and the admin's own
+mail key (`apps/<namespace>/cms`), the front's API token
+(`apps/<namespace>/cms-client`), RUM, `ghcr-pull`, each site's Mautic as a
+deployment, and the network. Everything else a site needs from an outside
+service, it sets in the admin, choosing the integration of each capability
+and entering its keys: payments (Stripe), video (Bunny), community
+(Discord), marketing automation (Mautic's URL and credentials), the site's
+own email (Resend), and the storage of its media and of its resources.
+Another integration is added in its plugin, without a change to the
+capability that picks it. What holds no secret (library IDs, plans,
+content) is set in the admin too.
 
-**Each tenant brings its own accounts** (operator decision, 2026-10-17;
-workspace#187). Its Stripe, Bunny, Discord, Resend and storage are the
-tenant's, billed to it, and the platform lends none of its own; each
-site's Mautic, deployed by the platform, stays as it is. Integrations the
-platform provides, such as Stripe Connect, one platform bot, or the
-platform's own video, storage or mail with a quota per tenant, are not
-built until there are tenants who pay for them. Each would be one more
-integration of the same port, beside the tenant's own.
+**Each site brings its own accounts** (operator decision, 2026-10-17;
+workspace#187, without tenants since 2026-10-20; workspace#203). Its
+Stripe, Bunny, Discord, Resend and storage are the site's, billed to it,
+and the platform lends none of its own; each site's Mautic, deployed by the
+platform, stays as it is. Integrations the platform provides, such as
+Stripe Connect, one platform bot, or the platform's own video, storage or
+mail with a quota per site, are not built until there are sites that pay
+for them. Each would be one more integration of the same port, beside the
+site's own.
 
-**A key entered in the admin lives in Vault, written and read by Payload.**
-Payload logs in with its own Kubernetes identity and a role of its own in
-the `vault` repo, which reaches only `tenants/` under its own namespace.
-It keeps a tenant's keys at `apps/<namespace>/tenants/<slug>/<name>`, the
-paths tenants already use (`apps/payload/` in prod, `apps/payload-staging/`
-in staging), and resolves them by the tenant's slug; Vault Secrets Operator
-does not sync them. The database never holds a value, only who set it and
-when, and the admin never shows one back. A new tenant or integration needs
-no change in gitops or Vault. The mail a tenant sends to its public, magic
-links and confirmations, goes out from that tenant's domain with the key
-the tenant entered, not Payload's, so the platform still never sends as a
-site (email, above).
+**A key entered in the admin lives in Vault, written and read by Strapi.**
+Strapi logs in with its own Kubernetes identity and a role of its own in the
+`vault` repo, `cms`, for the namespaces labelled `vault.0xc0.cc/cms`, which
+reaches only `integrations/` under its own namespace. It keeps a key at
+`apps/<namespace>/integrations/<name>` (`apps/artistlabco-com/` in prod,
+`apps/artistlabco-com-staging/` in staging) and resolves it by the
+integration's name; Vault Secrets Operator does not sync them. The database
+never holds a value, only who set it and when, and the admin never shows
+one back. A new integration needs no change in gitops or Vault. The mail a
+site sends to its public, magic links and confirmations, goes out from that
+site's domain with the key the site entered, not the admin's, so the
+platform still never sends as a site (email, above).
 
-**A tenant's storage is its own, in any S3-compatible provider**: one for
-its media and one for its resources. Media may have a public URL, and
-without one Payload serves the files. The R2 buckets above keep the files
-that exist, and artistlab's storage points at its current bucket.
+**A site's storage is its own, in any S3-compatible provider**: one bucket
+for its media and one for its resources, each per environment. Media may
+have a public URL, and without one Strapi serves the files. Its buckets are
+R2's, named by the rule above and created by `infrastructure`: new ones, not
+the ones Payload used.
 
-**Payload's egress is HTTPS on 443 to the public internet**, except
-private, reserved and cluster ranges (operator decision, 2026-10-17;
-workspace#187): the services a tenant picks are outside, and the cluster
-needs no rule per provider. Internal services stay closed at the network
-layer, and Payload refuses an endpoint that is not HTTPS or that resolves
-to a private address, with timeouts and size limits. An in-cluster
-integration (a site's Mautic) or one on another port keeps its own rule.
-The risk is taken knowingly ([accepted risks](../accepted-risks.md)).
+**Strapi's egress is HTTPS on 443 to the public internet**, except private,
+reserved and cluster ranges (operator decision, 2026-10-17; workspace#187,
+for Payload; carried to Strapi 2026-10-21; workspace#203): the services a
+site picks are outside, and the cluster needs no rule per provider.
+Internal services stay closed at the network layer, and Strapi refuses an
+endpoint that is not HTTPS or that resolves to a private address, with
+timeouts and size limits. An in-cluster integration (a site's Mautic) or
+one on another port keeps its own rule. The risk is taken knowingly
+([accepted risks](../accepted-risks.md)).
 
 **One shared PostgreSQL for the applications that need it** (operator
-decision, 2026-10-09; workspace#64): Payload does not support MySQL or
-MariaDB. One server in `platform/postgres`, with the same rules as the
-shared MariaDB: one database and one role per application, a plain
-StatefulSet from the official image with no operator, and a nightly
-logical dump per database.
+decision, 2026-10-09; workspace#64): one server in `platform/postgres`, with
+the same rules as the shared MariaDB: one database and one role per
+application, named after its namespace, a plain StatefulSet from the
+official image with no operator, and a nightly logical dump per database.
+It was added because Payload does not support MySQL or MariaDB. It stays
+for Strapi, which supports it: the server, its network policy and its dumps
+already exist, so each site's Strapi is one more database and role on it,
+and no second engine or server runs for it.
 
 **Application repos carry the `app` topic** (operator decision,
 2026-10-09), set in `.github`'s `terraform.tfvars` with the others.
@@ -322,6 +340,41 @@ Zones are Proxmox SDN: one Simple zone, a VNet and a subnet per zone, the host
 as `.1` and SNAT for egress, all in OpenTofu through `bpg/proxmox`. Zones
 spanning nodes do not exist: there is one node. Native Proxmox firewall through the same
 provider.
+
+## The admin, for the people who edit
+
+The reason for the switch from Payload binds every capability of a site's
+Strapi (operator decision, 2026-10-21; workspace#203): the editors, a site's
+founders today and a client later, run the whole site from the admin
+without help, in Spanish. Strapi still stores content as content types; what
+makes its admin friendly is configured, and part of it is written as the
+site's own admin pages. Every capability brings its admin part, in the same
+change:
+
+- **Their words, in Spanish**: every content type, field, block and option
+  has a Spanish display name and a help text that says what it does on the
+  site; errors read in plain Spanish.
+- **Only what they use**: internal types (magic links, Stripe events,
+  plumbing) are hidden from the Content Manager. An Editor role sees
+  content, members and forms, never settings or a key's value; the operator
+  is the super admin.
+- **Views laid out for the task**: field order, widths, groups and list
+  columns chosen per type. The layout lives in the repo and is applied at
+  startup, so every environment matches; nothing is configured by hand in
+  one environment only.
+- **A page builder that reads like the page**: blocks with Spanish names,
+  icons and a one-line description, and Strapi's Preview beside the form
+  showing the real front.
+- **Actions where the thing is**: buttons in the edit view, through Strapi's
+  injection zones, such as resending a member's sign-in link.
+- **Integraciones**: a settings page of the site's own, one card per
+  capability (payments, video, community, mail, marketing, storage), with
+  its state (configured, missing, failing), a button to test the connection,
+  help on where each key is found at the provider, and who set it and when,
+  never the value.
+- **Inicio as a dashboard**: widgets on Strapi's home with new members,
+  active subscriptions, the latest form submissions, the next event, and any
+  integration missing or failing.
 
 ## Templates
 

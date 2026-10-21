@@ -13,12 +13,13 @@ explicit decision from the operator.
 - One cluster holds shared services and applications, Vault included: they are
   separated by namespace and NetworkPolicy, not by zone.
 - Vault is sealed after every restart until it is unsealed by hand; meanwhile
-  applications get no new secrets. Payload keeps its tenants' keys only in
-  memory, read from Vault, so a Payload pod that starts in that window has
-  none (operator decision, 2026-10-17; workspace#187): each tenant's
-  payments, video, community, mail and storage answer as not configured
-  until the unseal, and come back on their own once Vault is unsealed. There
-  is nothing to unseal automatically with, so it stays by hand.
+  applications get no new secrets. A site's Strapi keeps its integrations'
+  keys only in memory, read from Vault, so a Strapi pod that starts in that
+  window has none (operator decision, 2026-10-17; workspace#187, for Payload;
+  restated for Strapi, 2026-10-21; workspace#203): the site's payments,
+  video, community, mail and storage answer as not configured until the
+  unseal, and come back on their own once Vault is unsealed. There is
+  nothing to unseal automatically with, so it stays by hand.
 - Inside the cluster Vault's API is plain HTTP, held in by NetworkPolicies,
   until pod-to-pod TLS: tokens and secrets cross from Traefik to the pod
   unencrypted.
@@ -59,10 +60,11 @@ explicit decision from the operator.
 - A portal on the public path (`websecure`) stays internal only by having no
   public record. Every internal service goes on the internal path instead,
   which the public tunnel cannot reach.
-- Payload's pods may reach HTTPS 443 on the public internet, except private,
-  reserved and cluster ranges (operator decision, 2026-10-17;
-  workspace#187): a tenant picks its integrations in the admin, so no rule
-  per provider is possible. Exfiltration is already open through
-  Cloudflare's ranges, and internal services stay closed at the network
-  layer. Payload refuses an endpoint that is not HTTPS or that resolves to a
-  private address.
+- A site's Strapi pods may reach HTTPS 443 on the public internet, except
+  private, reserved and cluster ranges (operator decision, 2026-10-17;
+  workspace#187, for Payload; restated for Strapi, 2026-10-21;
+  workspace#203): a site picks its integrations in its admin, so no rule per
+  provider is possible. Exfiltration is already open through Cloudflare's
+  ranges, and internal services stay closed at the network layer. Strapi
+  refuses an endpoint that is not HTTPS or that resolves to a private
+  address.

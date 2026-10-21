@@ -16,9 +16,9 @@ ArgoCD points at `gitops/bootstrap/prod/`, which deploys `platform/` and
 
 How an application's code goes from a commit to staging and prod, and how a
 frontend and the backend it reads stay in step (operator decisions,
-2026-10-10 and 2026-10-11; workspace#68). It applies to `payload` and
-`artistlabco.com`, which have a staging environment, and to `offby1.cc`,
-which has none (below).
+2026-10-10 and 2026-10-11; workspace#68). It applies to `artistlabco.com`,
+which has a staging environment, and to `offby1.cc`, which has none (below);
+and to `payload`, which has one, until it is retired.
 
 **Trunk-based, versioned from Conventional Commits.** `main` is the trunk:
 short-lived branches, squash merges, no release branches. Every merge to
@@ -57,6 +57,15 @@ pass, through `gitops`' merge queue (below). Prod's is the operator's merge,
 and that merge is prod's approval: GitHub Free gives private repositories no
 environment reviewers, wait timers, environment secrets or rulesets. Rolling
 back is reverting that PR.
+
+**An app repo may build a second image from a subdirectory** (operator
+decision, 2026-10-20; workspace#203): `ghcr.io/<repo>-<suffix>`, from
+`<suffix>/Dockerfile`. A site's Strapi is the first: `artistlabco.com`'s
+`cms/` builds `ghcr.io/0xc0-labs/artistlabco.com-cms`, beside the front's
+own image. Both are built from the same commit and released under the
+repo's one version, in one promote PR that moves both pins, so a site's
+front and its CMS are never at different versions. The shared workflows in
+`.github` build each.
 
 **`gitops` merges through a merge queue** (operator decision, 2026-10-12;
 workspace#139). Its ruleset requires a branch to be up to date with `main`,
@@ -139,11 +148,11 @@ server, its own bucket, and its own `apps/<app>-staging/` path in Vault,
 which the `apps` role already covers. It is reached over WARP, at
 `<app>-staging.int.0xc0.cc` (a front's can also be published behind Access:
 [network](network.md)), and is observed as prod is, its signals tagged
-`deployment.environment=staging`. Its data is a seed versioned in `payload`:
-tenants and test users, reset when needed; later, once prod
-has content, a copy of prod without its users collection, run by the
-operator. Applications without staging keep everything in `prod/`:
-`offby1.cc`, with its pin written by its releases (above). Each staging
+`deployment.environment=staging`. Its data is a seed versioned in the
+application's repo: test content and users, reset when needed; later, once
+prod has content, a copy of prod without its users, run by the operator.
+Applications without staging keep everything in `prod/`: `offby1.cc`, with
+its pin written by its releases (above). Each staging
 environment doubles its application's memory in the cluster. An
 application deployed once per site keeps its common base in
 `apps/<app>/base/` and one overlay per site at `apps/<app>/<site>/`, in
@@ -164,31 +173,21 @@ schema and rolling back the image is safe.
 **The frontends render on the server, each as a BFF.** A frontend is a
 Next.js application in the cluster and a backend for frontend: its own
 server is the only backend its pages talk to (operator decision, 2026-10-13;
-workspace#168). The browser never calls Payload, and what a page needs from
+workspace#168). The browser never calls the CMS, and what a page needs from
 it, a form, a search or a member's own page, goes through the frontend's
-server. That server calls Payload's internal Service in one of two ways:
-
-- **As its tenant**, for public content and form submissions, with the API
-  key of its tenant's client in Payload's `api-clients` auth collection, one
-  client per tenant and environment, kept in Vault.
-- **As the member**, for a member's own actions, with that member's Payload
-  token, which the frontend keeps in an httpOnly cookie on its own domain:
-  Payload's access control decides what a member reaches, and no script in
-  the browser reads the token.
-
-This replaces the read-only API key of workspace#68: a frontend now writes
-too, its forms' submissions and its members' actions. Stripe's webhooks
-need a public URL, so they reach a route of the frontend, which forwards
-each one raw to Payload; Payload verifies its signature, which Stripe
-computes over the exact body.
-Staging's frontend reads staging's Payload, and the
-network policies let each Payload be reached only by the frontends of its
-environment. The build never reads Payload, and nothing that differs between
-environments is baked into the image (no `NEXT_PUBLIC_` value that does), so
-one image serves both. Outside, only the uploaded files are public, from R2
-at `media.0xc0.cc` (workspace#88); the API, GraphQL and authentication stay
-inside, and the admin stays at `payload.int.0xc0.cc`. A public Payload API
-stays [discarded](../discarded.md).
+server, which calls the site's Strapi on its Service in the same namespace.
+It reads with an API token kept in Vault at `apps/<namespace>/cms-client`,
+and Strapi's public role grants nothing. Stripe's webhooks need a public
+URL, and Strapi's hostname serves the admin alone, so they reach a route of
+the frontend, which forwards each one raw to Strapi; Strapi verifies its
+signature, which Stripe computes over the exact body. Staging's frontend
+reads staging's Strapi. The build never reads the CMS, and nothing that
+differs between environments is baked into the image (no `NEXT_PUBLIC_`
+value that does), so one image serves both. Outside, only the uploaded files
+are public, from R2 (workspace#88), and the admin, behind Cloudflare Access
+([platform](platform.md)); the API and authentication stay inside. A public
+CMS API stays [discarded](../discarded.md). Payload's fronts call it through
+their servers the same way while it runs.
 
 **Observable as every application is, in both environments.** The rule in
 [platform](platform.md)
@@ -202,11 +201,12 @@ run outside `gitops`; and `deployment.environment`, from the environment's
 directory. The same image is an rc in staging and a release in prod, so its
 version cannot be baked into it. A request is one trace from the browser to
 the database: RUM starts it and sends `traceparent` to the frontend's own
-origin only, the frontend's server continues it, its call to Payload carries
-it, and Payload's spans reach PostgreSQL. Logs are JSON with the trace and
-span IDs, so OpenObserve opens a request's logs from its trace. Payload,
-itself a Next.js application, and the frontends instrument with OpenTelemetry
-through Next.js's instrumentation hook, and each environment's namespace is
+origin only, the frontend's server continues it, its call to the CMS carries
+it, and the CMS's spans reach PostgreSQL. Logs are JSON with the trace and
+span IDs, so OpenObserve opens a request's logs from its trace. The
+frontends instrument with OpenTelemetry through Next.js's instrumentation
+hook, and a site's Strapi, a Node service, through `@0xc0-labs/observability`
+and its inbound spans (packages#31). Each environment's namespace is
 admitted in the collector's `otlp-from-senders`.
 
 **Images of private repositories stay private.** The cluster pulls them from
@@ -214,16 +214,21 @@ GHCR with a read-only token at `apps/shared/ghcr-pull` in Vault, which Vault
 Secrets Operator turns into an `imagePullSecret` in each namespace that
 needs one. Images of public repos stay public, as today.
 
-**The backend publishes a versioned contract.** `payload` publishes its
-generated types as `@0xc0-labs/payload-types`, a private npm package in
-GitHub Packages, with the version of the rc or release that built it: an rc
-publishes `X.Y.Z-rc.N` under the `rc` dist-tag, a release `X.Y.Z`. A
-frontend pins it in its `package.json`, so a breaking change in the backend
-fails the frontend's build, never its users. The backend changes by expand
-and contract: it adds (a minor) and deploys, the frontends adopt, and it
-removes (a breaking release) only once no deployed frontend uses what goes.
+**A backend in a repo of its own publishes a versioned contract.** A
+site's Strapi does not: it ships with its front, in the same repo, version
+and promote PR (above), so the two have no contract between them and no
+order to enforce. `payload`, in a repo of its own, does, until it is retired:
+it publishes its generated types as `@0xc0-labs/payload-types`, a private
+npm package in GitHub Packages, with the version of the rc or release that
+built it: an rc publishes `X.Y.Z-rc.N` under the `rc` dist-tag, a release
+`X.Y.Z`. A frontend pins it in its `package.json`, so a breaking change in
+the backend fails the frontend's build, never its users. The backend changes
+by expand and contract: it adds (a minor) and deploys, the frontends adopt,
+and it removes (a breaking release) only once no deployed frontend uses what
+goes. `@0xc0-labs/payload-types` and `@0xc0-labs/payload-client` are retired
+with Payload (operator decision, 2026-10-20; workspace#203).
 
-**CI enforces the order between repos:**
+**CI enforces the order between a frontend and a backend of another repo:**
 
 1. A frontend release cannot depend on a prerelease of the contract, so the
    backend always reaches prod first.
@@ -245,8 +250,11 @@ its own release, through a reusable workflow in `.github`. An app pins the
 version in its `package.json`, and Renovate, once it runs, bumps it as any
 other dependency. The first is `@0xc0-labs/observability`: OpenTelemetry for
 Node and Next.js, with the resource attributes, the OTLP exporter and the
-kube-probe propagator that payload#30 wrote. Who notices a candidate, and
-who decides, is in [how we work](how-we-work.md).
+kube-probe propagator that payload#30 wrote. A Strapi capability is a
+generic plugin of its site's `cms/src/plugins/<capability>`, and moves to
+`@0xc0-labs/strapi-plugin-<capability>` as it is, without a rewrite, when a
+second site needs it (operator decision, 2026-10-20; workspace#203). Who
+notices a candidate, and who decides, is in [how we work](how-we-work.md).
 
 **Renovate keeps every repo's dependencies current.** It runs as a scheduled
 workflow in `.github`, on the self-hosted runners, with
