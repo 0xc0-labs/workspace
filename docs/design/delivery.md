@@ -177,17 +177,22 @@ workspace#168). The browser never calls the CMS, and what a page needs from
 it, a form, a search or a member's own page, goes through the frontend's
 server, which calls the site's Strapi on its Service in the same namespace.
 It reads with an API token kept in Vault at `apps/<namespace>/cms-client`,
-and Strapi's public role grants nothing. Stripe's webhooks need a public
-URL, and Strapi's hostname serves the admin alone, so they reach a route of
-the frontend, which forwards each one raw to Strapi; Strapi verifies its
-signature, which Stripe computes over the exact body. Staging's frontend
-reads staging's Strapi. The build never reads the CMS, and nothing that
-differs between environments is baked into the image (no `NEXT_PUBLIC_`
-value that does), so one image serves both. Outside, only the uploaded files
-are public, from R2 (workspace#88), and the admin, behind Cloudflare Access
-([platform](platform.md)); the API and authentication stay inside. A public
-CMS API stays [discarded](../discarded.md). Payload's fronts call it through
-their servers the same way while it runs.
+and Strapi's public role grants nothing. The frontend writes too, its
+forms' submissions and its members' actions. For a member's own actions it
+also passes that member's token, which Strapi issues and the frontend keeps
+in an httpOnly cookie on its own domain, so no script in the browser reads
+it and Strapi decides what the member reaches. Stripe's webhooks need a
+public URL, and Strapi's hostname serves the admin alone, so they reach a
+route of the frontend, which forwards each one raw to Strapi; Strapi
+verifies its signature, which Stripe computes over the exact body.
+Staging's frontend reads staging's Strapi. The build never reads the CMS,
+and nothing that differs between environments is baked into the image (no
+`NEXT_PUBLIC_` value that does), so one image serves both. Outside, only
+the uploaded files are public, from R2 (workspace#88), and the admin,
+behind Cloudflare Access ([platform](platform.md)); the API and
+authentication stay inside. A public CMS API stays
+[discarded](../discarded.md). Payload's fronts call it through their
+servers the same way while it runs.
 
 **Observable as every application is, in both environments.** The rule in
 [platform](platform.md)
