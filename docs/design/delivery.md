@@ -255,11 +255,13 @@ its own release, through a reusable workflow in `.github`. An app pins the
 version in its `package.json`, and Renovate, once it runs, bumps it as any
 other dependency. The first is `@0xc0-labs/observability`: OpenTelemetry for
 Node and Next.js, with the resource attributes, the OTLP exporter and the
-kube-probe propagator that payload#30 wrote. A Strapi capability is a
-generic plugin of its site's `cms/src/plugins/<capability>`, and moves to
-`@0xc0-labs/strapi-plugin-<capability>` as it is, without a rewrite, when a
-second site needs it (operator decision, 2026-10-20; workspace#203). Who
-notices a candidate, and who decides, is in [how we work](how-we-work.md).
+kube-probe propagator that payload#30 wrote. Strapi's plugins are the
+exception and live here from the start: a site's Strapi takes each capability
+from a plugin, either reused from Strapi or its community or one of ours,
+`@0xc0-labs/strapi-plugin-<capability>`, and its `cms/` holds only its
+configuration, its own content types and blocks, and the files of its admin
+views and roles (operator decision, 2026-10-21; workspace#202). Who notices a
+candidate, and who decides, is in [how we work](how-we-work.md).
 
 **Renovate keeps every repo's dependencies current.** It runs as a scheduled
 workflow in `.github`, on the self-hosted runners, with

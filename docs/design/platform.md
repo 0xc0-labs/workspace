@@ -235,27 +235,29 @@ telemetry is off.
 **A site's Strapi is the whole backend of its site** (operator decision,
 2026-10-13; workspace#168, carried to Strapi 2026-10-20; workspace#203), not
 only its content: members, subscriptions, forms and leads, and gated
-resources too. **Every capability is generic**: a Strapi plugin of its own,
-`cms/src/plugins/<capability>`, with nothing of the site in its code. What is
-the site's, its copy, plans, roles and IDs, is set in the admin or is
-content, so a new site that uses what exists needs no new code. When a
-second site needs a capability, it moves as it is to
-`@0xc0-labs/strapi-plugin-<capability>` ([delivery](delivery.md)). **A
-site's Strapi carries the capabilities it uses and no others**: with one
-Strapi per site there is no tenant to switch a capability on for, which
-replaces the per-tenant switch of 2026-10-13 (workspace#171), and some sites
-will not need one (marketing automation and its Mautic, for one). **A
-capability requires only what it cannot work without** (operator decision,
-2026-10-16; workspace#184): anything gated by identity (resources, videos,
-community roles) requires `members`, and nothing more. **A membership says
-who belongs to a site, never who pays** (operator decision, 2026-10-18;
-workspace#197): payments are read from the subscriptions when access is
-decided. Where the site uses `subscriptions`, a gated record names its
-audience: every member, every subscriber, or some plans, as Ghost's
+resources too. **Every capability is generic**: a site's Strapi takes each one
+from a plugin with nothing of the site in its code, either reused from Strapi
+or its community, pinned and wrapped if needed, or one of ours in
+`0xc0-labs/packages`, `@0xc0-labs/strapi-plugin-<capability>`
+([delivery](delivery.md)) (operator decision, 2026-10-21; workspace#202). The
+site's `cms/` holds only its configuration, its own content types and blocks,
+and the files of its admin views and roles. What is the site's, its copy,
+plans, roles and IDs, is set in the admin or is content, so a new site that
+uses what exists needs no new code. **A site's Strapi carries the capabilities
+it uses and no others**: with one Strapi per site there is no tenant to switch
+a capability on for, which replaces the per-tenant switch of 2026-10-13
+(workspace#171), and some sites will not need one (marketing automation and
+its Mautic, for one). **A capability requires only what it cannot work
+without** (operator decision, 2026-10-16; workspace#184): anything gated by
+identity (resources, videos, community roles) requires `members`, and nothing
+more. **A membership says who belongs to a site, never who pays** (operator
+decision, 2026-10-18; workspace#197): payments are read from the subscriptions
+when access is decided. Where the site uses `subscriptions`, a gated record
+names its audience: every member, every subscriber, or some plans, as Ghost's
 visibility levels do (members, paid members, specific tiers), and community
 roles follow the same levels. Without `subscriptions`, every `active` member
-gets in. Who gets in is decided in one place in the site's Strapi, which
-every gated capability uses.
+gets in. Who gets in is decided in one place in the site's Strapi, which every
+gated capability uses.
 
 **Leads reach Mautic through the site's Strapi** (operator decision,
 2026-10-13; workspace#168, carried to Strapi 2026-10-20; workspace#203). A
