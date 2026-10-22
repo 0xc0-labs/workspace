@@ -2,7 +2,7 @@
   "$schema": "https://code.claude.com/schemas/settings.json",
   "model": "opus",
   "effortLevel": "xhigh",
-  "autoCompactWindow": 200000,
+  "autoCompactWindow": 300000,
   "env": { "CLAUDE_CODE_SUBAGENT_MODEL": "sonnet" },
   "permissions": {
     "allow": [
