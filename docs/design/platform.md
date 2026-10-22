@@ -348,14 +348,21 @@ provider.
 The reason for the switch from Payload binds every capability of a site's
 Strapi (operator decision, 2026-10-21; workspace#203): the editors, a site's
 founders today and a client later, run the whole site from the admin
-without help, in Spanish. Strapi still stores content as content types; what
+without help, in the language each picks in their profile, Spanish by
+default and English complete (operator decision, 2026-10-22;
+workspace#209). Strapi still stores content as content types; what
 makes its admin friendly is configured, and part of it is written as the
 site's own admin pages. Every capability brings its admin part, in the same
 change:
 
-- **Their words, in Spanish**: every content type, field, block and option
-  has a Spanish display name and a help text that says what it does on the
-  site; errors read in plain Spanish.
+- **Their words, in their language**: every content type, field and block
+  has a display name and a help text that says what it does on the site, in
+  Spanish and in English; errors read in plain words in the user's
+  language. A list field's options are shown as stored, since Strapi does
+  not translate them. Spanish lives in the site's views, English beside it
+  in the site's translations, and each shared plugin carries both; the
+  translation ids are in the
+  [`strapi-plugin-admin-setup` README](https://github.com/0xc0-labs/packages/tree/main/packages/strapi-plugin-admin-setup#readme).
 - **Only what they use**: internal types (magic links, Stripe events,
   plumbing) are hidden from the Content Manager. An Editor role sees
   content, members and forms, never settings or a key's value; the operator
@@ -364,9 +371,9 @@ change:
   columns chosen per type. The layout lives in the repo and is applied at
   startup, so every environment matches; nothing is configured by hand in
   one environment only.
-- **A page builder that reads like the page**: blocks with Spanish names,
-  icons and a one-line description, and Strapi's Preview beside the form
-  showing the real front.
+- **A page builder that reads like the page**: blocks with names, icons and
+  a one-line description in the user's language, and Strapi's Preview
+  beside the form showing the real front.
 - **Actions where the thing is**: buttons in the edit view, through Strapi's
   injection zones, such as resending a member's sign-in link.
 - **Integraciones**: a settings page of the site's own, one card per
