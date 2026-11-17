@@ -44,9 +44,8 @@ ORG = "0xc0-labs"
 MARKETPLACE = "0xc0-labs"
 BOARD = 1
 INTERVAL = 60
-TAB = "autopilot"
-HERDR = os.environ.get("HERDR_BIN_PATH", "herdr")
 ROOT = Path(__file__).resolve().parents[2]
+LIB = ROOT / "herdr" / "lib"
 WORKTREES = ROOT / ".worktrees"
 CONF = ROOT / "herdr" / "autopilot.conf"
 HOOKS = ROOT / "claude-config" / "plugins" / "0xc0" / "hooks"
@@ -63,10 +62,16 @@ NEW_PROJECT = {"allowedTools": [], "mcpContextUris": [], "mcpServers": {},
                "hasClaudeMdExternalIncludesWarningShown": False}
 CONFIG_LOCK_STALE = 10
 SCRIPT = Path(__file__).resolve()
-# What the loop reads from herdr/: a change to either is picked up between rounds.
-WATCHED = (SCRIPT, CONF)
+CODE = (SCRIPT, *sorted((LIB / "frontend").glob("*.py")))
+# What the loop reads from herdr/: a change to any of it is picked up between rounds.
+WATCHED = (*CODE, CONF)
 LAUNCHED_ENV = "OXC0_AUTOPILOT_LAUNCHED"
 KEPT_REPEAT = 600
+
+sys.dont_write_bytecode = True  # importing the layer would leave a __pycache__ in the checkout
+sys.path.insert(0, str(LIB))
+import frontend  # noqa: E402
+from frontend import Failed  # noqa: E402
 
 QUERY = """
 query($owner: String!, $name: String!) {
@@ -95,10 +100,6 @@ query($owner: String!, $name: String!) {
 """
 
 
-class Failed(Exception):
-    pass
-
-
 def log(message):
     print(time.strftime("%H:%M:%S"), message, flush=True)
 
@@ -108,10 +109,6 @@ def run(*args, cwd=None):
     if p.returncode:
         raise Failed(f"{' '.join(args[:3])}: {(p.stderr or p.stdout).strip()}")
     return p.stdout
-
-
-def herdr(*args):
-    return json.loads(run(HERDR, *args))["result"]
 
 
 def git(cwd, *args):
@@ -129,21 +126,6 @@ def slots(repo):
         if len(fields) == 2 and fields[0] == repo:
             return int(fields[1])
     return 1
-
-
-def workspace(name):
-    for w in herdr("workspace", "list")["workspaces"]:
-        if w["label"] == name:
-            return w["workspace_id"]
-    return None
-
-
-def tabs(ws):
-    return herdr("tab", "list", "--workspace", ws)["tabs"] if ws else []
-
-
-def autopilot_tab(name):
-    return next((t for t in tabs(workspace(name)) if t["label"] == TAB), None)
 
 
 def ready(repo):
@@ -181,10 +163,9 @@ def find_last_line(repo, n, screen):
     return None
 
 
-def last_line(repo, n, pane):
+def last_line(repo, n, session):
     """The session's `work-issue: done|stopped` line, if it printed it."""
-    screen = run(HERDR, "agent", "read", pane, "--source", "recent-unwrapped", "--lines", "80")
-    return find_last_line(repo, n, screen)
+    return find_last_line(repo, n, frontend.read_screen(session))
 
 
 def self_test():
@@ -223,10 +204,17 @@ def self_test():
     failed_plugins = [c for c in plugin_cases if org_plugins(c[0]) != c[1]]
     for settings, want in failed_plugins:
         print(f"FAIL org_plugins {settings!r}: want {want!r}, got {org_plugins(settings)!r}")
-    total = len(cases) + len(plugin_cases)
-    passed = total - len(failed) - len(failed_plugins)
+    layer_cases = [
+        ("the layer loads the tui backend", frontend.backend.__name__ == "frontend.tui"),
+        ("the tui backend has every operation the layer defines", not frontend.lacking(frontend.backend)),
+    ]
+    failed_layer = [c for c in layer_cases if not c[1]]
+    for what, _ in failed_layer:
+        print(f"FAIL {what}: lacking {', '.join(frontend.lacking(frontend.backend)) or 'nothing'}")
+    total = len(cases) + len(plugin_cases) + len(layer_cases)
+    passed = total - len(failed) - len(failed_plugins) - len(failed_layer)
     print(f"{passed}/{total} passed")
-    return not failed and not failed_plugins
+    return not failed and not failed_plugins and not failed_layer
 
 
 def clean_up(d, session, dry):
@@ -278,31 +266,24 @@ def remove_worktree(d, session, wt, dry, merged):
     log(f"{session}: worktree removed{merged}")
 
 
-def at_shell(pane):
-    """Whether the pane is back at its shell, with no program in front."""
-    info = herdr("pane", "process-info", "--pane", pane)["process_info"]
-    return info["foreground_process_group_id"] == info["shell_pid"]
-
-
-def finish(d, repo, session, n, tab, agent, pane, dry):
+def finish(d, repo, worker, dry):
     """Closes a worker's tab when its session has ended; True if it did."""
-    if agent is None:
-        # Herdr may not have detected a session that just started.
-        if pane is None or not at_shell(pane):
-            return False
+    n = worker.n
+    state = frontend.session_state(worker.session)
+    if state == frontend.ENDED:
         reason = "its session exited"
-    elif agent["agent_status"] in ("idle", "done"):
-        reason = last_line(repo, n, agent["pane_id"])
+    elif state == frontend.AT_REST:
+        reason = last_line(repo, n, worker.session)
         if reason is None:
             return False
     else:
         return False
     if dry:
-        log(f"{repo}#{n}: {reason}; would close tab {tab['tab_id']}")
+        log(f"{repo}#{n}: {reason}; would close tab {worker.tab}")
     else:
-        herdr("tab", "close", tab["tab_id"])
+        frontend.close_tab(worker.tab)
         log(f"{repo}#{n}: {reason}; tab closed")
-    clean_up(d, session, dry)
+    clean_up(d, worker.name, dry)
     return True
 
 
@@ -339,7 +320,7 @@ def claim(repo, n, dry):
     return True
 
 
-def launch(d, repo, ws, session, n, dry):
+def launch(d, repo, space, session, n, dry):
     """Starts the issue's session; False only when a failed claim should be
     retried next round."""
     if not claim(repo, n, dry):
@@ -351,12 +332,7 @@ def launch(d, repo, ws, session, n, dry):
         return True
     worktree_settings()
     # The 0xc0 plugin's SessionStart hook skips the board read on it (#130).
-    pane = herdr("tab", "create", "--workspace", ws, "--cwd", str(d),
-                 "--label", session, "--no-focus",
-                 "--env", "OXC0_AUTOPILOT=1")["root_pane"]["pane_id"]
-    # Not `agent start`: it waits for the agent to be ready for input, and a
-    # session given a prompt goes straight to work (#112).
-    run(HERDR, "pane", "run", pane, shlex.join(["claude", *args]))
+    frontend.start_session(space, session, d, shlex.join(["claude", *args]), {"OXC0_AUTOPILOT": "1"})
     log(f"{repo}#{n}: started {session}")
     return True
 
@@ -385,20 +361,13 @@ def round_(d, repo, name, launched, dry):
     again only when its board item changed after that end (#164): it went back
     to Ready, not the same block again. The comparison uses the `updatedAt` the
     round's board read already returns, so it costs no API call."""
-    ws = workspace(name)
-    if ws is None and not dry:
+    space = frontend.find_space(name)
+    if space is None and not dry:
         raise Failed(f"no Herdr workspace named {name}")
-    agents = {a["tab_id"]: a for a in herdr("agent", "list")["agents"]}
-    panes = {p["tab_id"]: p["pane_id"] for p in herdr("pane", "list", "--workspace", ws)["panes"]} if ws else {}
     busy = set()
-    for tab in tabs(ws):
-        m = re.fullmatch(rf"{re.escape(name)}-(\d+)", tab["label"])
-        if not m:
-            continue
-        n, agent = int(m.group(1)), agents.get(tab["tab_id"])
-        if agent is not None and not agent.get("name") and not dry:
-            subprocess.run([HERDR, "agent", "rename", agent["pane_id"], tab["label"]], capture_output=True)
-        if finish(d, repo, tab["label"], n, tab, agent, panes.get(tab["tab_id"]), dry):
+    for worker in frontend.workers(space, dry):
+        n = worker.n
+        if finish(d, repo, worker, dry):
             launched[n] = now_utc()
         else:
             busy.add(n)
@@ -433,7 +402,7 @@ def round_(d, repo, name, launched, dry):
     elif todo:
         update_plugin(d)
     for n in todo:
-        if launch(d, repo, ws, f"{name}-{n}", n, dry):
+        if launch(d, repo, space, f"{name}-{n}", n, dry):
             launched[n] = None
     return not busy and not found
 
@@ -606,14 +575,15 @@ def fingerprint():
 def restart_if_changed(seen, launched):
     """Re-executes the loop when its own code changed, between rounds, with
     the same arguments and the issues it started carried in the environment.
-    A script that does not compile is not run: the loop keeps going on the old
-    code and looks again only when the file changes once more. Returns the
-    fingerprint to compare with next."""
+    Code that does not compile, the script or a file of the layer, is not run:
+    the loop keeps going on the old code and looks again only when a watched
+    file changes once more. Returns the fingerprint to compare with next."""
     now = fingerprint()
     if now == seen:
         return seen
     try:
-        compile(SCRIPT.read_text(), str(SCRIPT), "exec")
+        for path in CODE:
+            compile(path.read_text(), str(path), "exec")
     except (OSError, SyntaxError, ValueError) as e:
         log(f"autopilot code changed but cannot be loaded, keeping the running one: {e}")
         return now
@@ -645,47 +615,38 @@ def loop(d, dry):
             return
         if done:
             log(f"{repo}: nothing Ready on the board and no session running; autopilot off")
-            tab = autopilot_tab(name)
-            if tab and tab["tab_id"] == os.environ.get("HERDR_TAB_ID"):
-                herdr("tab", "close", tab["tab_id"])
+            tab = frontend.pilot(name)
+            if tab and frontend.is_own_tab(tab):
+                frontend.close_tab(tab)
             return
         time.sleep(INTERVAL)
         seen = restart_if_changed(seen, launched)
 
 
 def toggle(d):
-    tab = autopilot_tab(session_name(d.name))
+    tab = frontend.pilot(session_name(d.name))
     if tab:
-        herdr("tab", "close", tab["tab_id"])
+        frontend.close_tab(tab)
         print(f"{d.name}: autopilot off")
     else:
         turn_on(d)
 
 
-def loop_alive(name, tab):
-    """Whether the tab's pane still has the loop in front of its shell."""
-    panes = herdr("pane", "list", "--workspace", workspace(name))["panes"]
-    pane = next((p["pane_id"] for p in panes if p["tab_id"] == tab["tab_id"]), None)
-    return pane is not None and not at_shell(pane)
-
-
 def state(d):
     """on, dead (the tab is there, the loop is not) or off."""
-    name = session_name(d.name)
-    tab = autopilot_tab(name)
+    tab = frontend.pilot(session_name(d.name))
     if tab is None:
         return "off"
-    return "on" if loop_alive(name, tab) else "dead"
+    return "on" if frontend.pilot_alive(tab) else "dead"
 
 
 def start(d):
-    name = session_name(d.name)
-    tab = autopilot_tab(name)
-    if tab and loop_alive(name, tab):
+    tab = frontend.pilot(session_name(d.name))
+    if tab and frontend.pilot_alive(tab):
         print(f"{d.name}: autopilot already on")
         return
     if tab:
-        herdr("tab", "close", tab["tab_id"])
+        frontend.close_tab(tab)
         print(f"{d.name}: autopilot was dead; restarting")
     turn_on(d)
 
@@ -693,17 +654,8 @@ def start(d):
 def turn_on(d):
     repo, name = d.name, session_name(d.name)
     command = f"{shlex.quote(str(Path(__file__).resolve()))} run {shlex.quote(str(d))}"
-    env = ["--env", f"HERDR_BIN_PATH={HERDR}"]
     cwd = str(d if d.is_dir() else ROOT)  # run clones a repo that is not here yet
-    ws = workspace(name)
-    if ws:
-        pane = herdr("tab", "create", "--workspace", ws, "--cwd", cwd,
-                     "--label", TAB, "--no-focus", *env)["root_pane"]["pane_id"]
-    else:
-        created = herdr("workspace", "create", "--cwd", cwd, "--label", name, "--no-focus", *env)
-        herdr("tab", "rename", created["tab"]["tab_id"], TAB)
-        pane = created["root_pane"]["pane_id"]
-    run(HERDR, "pane", "run", pane, command)  # prints nothing on success, unlike the rest
+    frontend.start_pilot(name, cwd, command)
     print(f"{repo}: autopilot on")
 
 

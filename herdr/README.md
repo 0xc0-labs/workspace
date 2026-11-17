@@ -110,14 +110,15 @@ end): an issue set Ready again is relaunched without toggling the pilot, and
 one whose session stopped on a block nobody touched is not (#164). A round that could not read the board, on a low API budget,
 does not count.
 
-Between rounds, it compares `bin/autopilot` and `autopilot.conf` with what it
-loaded at start. When one changed, it logs `autopilot code changed;
-restarting` and re-executes itself (`os.execv`) with the same arguments, in
-the same tab: the issues it already started are carried over, `prepare` is
-not repeated, and a round in progress is never cut. A script that does not
-compile is not run: the loop keeps the old code until the file changes again.
-A pilot therefore picks a pulled change to `herdr/` up on its own, and one
-that read a deleted file no longer dies on it.
+Between rounds, it compares `bin/autopilot`, `autopilot.conf` and the files of
+`lib/frontend/` with what it loaded at start. When one changed, it logs
+`autopilot code changed; restarting` and re-executes itself (`os.execv`) with
+the same arguments, in the same tab: the issues it already started are
+carried over, `prepare` is not repeated, and a round in progress is never cut.
+Code that does not compile, the script or any file of `lib/frontend/`, is not
+run: the loop keeps the old code until a watched file changes again. A pilot
+therefore picks a pulled change to `herdr/` up on its own, and one that read a
+deleted file no longer dies on it.
 
 `bin/autopilot state <repo>` prints `on` only when the loop is running in its
 tab, `dead` when the tab is there and the loop exited, and `off` without the
@@ -296,15 +297,23 @@ the operator's machine. Four steps, and only the third ends anything:
 ## Files
 
 ```
-herdr-plugin.toml   the actions and their popups
-autopilot.conf      each repo's slots
-bin/open-picker     an action: opens a popup
-bin/pick            the popups: the workspace and every repo cloned in it
-bin/open-session    opens or focuses one directory's session
-bin/autopilot       the autopilot: its loop, and starting or toggling it
+herdr-plugin.toml         the actions and their popups
+autopilot.conf            each repo's slots
+bin/open-picker           an action: opens a popup
+bin/pick                  the popups: the workspace and every repo cloned in it
+bin/open-session          opens or focuses one directory's session
+bin/autopilot             the autopilot: its loop, and starting or toggling it
+lib/frontend/__init__.py  what the two scripts ask of Herdr, and the loading of
+                          the backend that does it
+lib/frontend/tui.py       the backend for Herdr's terminal app: every call to
+                          the `herdr` binary the two scripts make
 ```
 
+The two scripts never run `herdr`: they ask `lib/frontend/`, in terms of
+spaces, tabs and sessions, and its backend, `tui`, translates them into
+`herdr`'s workspaces, tabs and agents.
+
 `bin/open-session <dir> --dry-run` prints what it would do, touching
-nothing. Both scripts need `python3`, from the OS: `open-session` to read
-Herdr's answers, and `autopilot` is written in it. The autopilot runs `gh`
-through mise, from the workspace's `mise.toml`.
+nothing. Both scripts need `python3`, from the OS: they are written in it,
+with its standard library alone. The autopilot runs `gh` through mise, from
+the workspace's `mise.toml`.
