@@ -28,7 +28,9 @@ turns itself off once no session runs and a fresh read of the board shows
 nothing Ready for the repo. Between rounds it re-executes itself when its own
 code changed.
 """
+import contextlib
 import fcntl
+import io
 import json
 import os
 import re
@@ -70,6 +72,10 @@ sys.dont_write_bytecode = True  # importing the layer would leave a __pycache__ 
 sys.path.insert(0, str(LIB))
 import frontend  # noqa: E402
 from frontend import Failed  # noqa: E402
+
+# A pilot runs in the TUI whichever front end the layer's rule picks, until its
+# operations exist in the app's backend (0xc0-labs/workspace#231).
+frontend.use("tui")
 
 QUERY = """
 query($owner: String!, $name: String!) {
@@ -166,8 +172,197 @@ def last_line(repo, n, session):
     return find_last_line(repo, n, frontend.read_screen(session))
 
 
+def asks(installed=("tui", "app"), window=False, core=()):
+    """The answers of fake front ends, in the form `frontend.choose` and
+    `frontend.answering` ask for them."""
+    def ask(name, question):
+        if question == "missing":
+            return [] if name in installed else [f"{name}-program"]
+        if question == "shows":
+            assert name in installed, "asked whether a front end that is not installed shows"
+            return window
+        return name in core
+    return ask
+
+
+def outcome(function, *args):
+    try:
+        return function(*args)
+    except (Failed, AssertionError) as e:
+        return f"failed: {e}"
+
+
+def play(app, recorded, action):
+    """Runs `action` with the app backend's `hc` and `herdr-app` calls
+    answered from `recorded`, command line to (exit status, stdout), or a list
+    of them taken in turn, the last one repeating. Returns the command lines
+    it ran, what it printed and what it returned."""
+    ran, out = [], io.StringIO()
+
+    def call(*command):
+        line = shlex.join(command)
+        ran.append(line)
+        answer = recorded.get(line, (99, f"no recorded answer for {line}"))
+        if isinstance(answer, list):
+            answer = answer.pop(0) if len(answer) > 1 else answer[0]
+        return subprocess.CompletedProcess(command, answer[0], answer[1], "")
+
+    saved = app.call, app.PAUSE
+    app.call, app.PAUSE = call, 0
+    try:
+        with contextlib.redirect_stdout(out):
+            result = outcome(action)
+    finally:
+        app.call, app.PAUSE = saved
+    return ran, out.getvalue(), result
+
+
+def frontend_cases():
+    """(what, got, want) for the layer's rule and for the app backend, from
+    fake environments and the answers of `hc` and `herdr-app` recorded on
+    2026-11-17 (0xc0-labs/workspace#226): nothing runs."""
+    cases = []
+    app, tui = frontend.load("app"), frontend.load("tui")
+    for name in frontend.FRONTENDS:
+        lacks = frontend.lacking(frontend.load(name))
+        has = [op for op in frontend.OPERATIONS if op not in lacks]
+        print(f"{name}: has " + ("every operation" if not lacks else ", ".join(has)) +
+              (f"; lacks {', '.join(lacks)}" if lacks else ""))
+    cases.append(("the tui backend lacks no operation", frontend.lacking(tui), []))
+    open_session_needs = {"missing", "answers", "shows", "find_session", "focus_session", "open_session"}
+    cases.append(("the app backend has what open-session needs",
+                  sorted(open_session_needs & set(frontend.lacking(app))), []))
+    frontend.use("app")
+    try:
+        cases.append(("an operation the app backend lacks fails with a message",
+                      outcome(frontend.find_space, "payload"),
+                      "failed: the app front end does not offer find_space yet"))
+    finally:
+        frontend.use("tui")
+
+    var = frontend.FRONTEND_ENV
+    not_installed = "failed: the {} front end is not installed ({}): {}-program not found in PATH"
+    rules = [
+        ("the option wins over the variable", ("app", {var: "tui"}, asks()), "app"),
+        ("the variable wins over where this runs", (None, {var: "tui", "HC_TERMINAL_ID": "t2"}, asks()), "tui"),
+        ("the variable alone", (None, {var: "app"}, asks()), "app"),
+        ("an empty variable is not set", (None, {var: "", "HERDR_PANE_ID": "p1"}, asks()), "tui"),
+        ("a terminal of the app", (None, {"HC_TERMINAL_ID": "t2"}, asks()), "app"),
+        ("a pane of the TUI", (None, {"HERDR_PANE_ID": "p1"}, asks(window=True)), "tui"),
+        ("both: the TUI", (None, {"HERDR_PANE_ID": "p1", "HC_TERMINAL_ID": "t2"}, asks(window=True)), "tui"),
+        ("outside both, the window answers", (None, {}, asks(window=True)), "app"),
+        ("outside both, the window does not answer", (None, {}, asks(window=False)), "tui"),
+        ("outside both, the app is not installed", (None, {}, asks(installed=("tui",))), "tui"),
+        ("an unknown option", ("gui", {}, asks()), "failed: --frontend: 'gui' is not a front end: use tui or app"),
+        ("an unknown variable", (None, {var: "gui"}, asks()),
+         f"failed: ${var}: 'gui' is not a front end: use tui or app"),
+        ("the app asked for, not installed", ("app", {}, asks(installed=("tui",))),
+         not_installed.format("app", "--frontend", "app")),
+        ("a terminal of the app, not installed", (None, {"HC_TERMINAL_ID": "t2"}, asks(installed=("tui",))),
+         not_installed.format("app", "this runs in one of its terminals", "app")),
+        ("no window, the TUI not installed", (None, {}, asks(installed=("app",))),
+         not_installed.format("tui", "the app's window does not answer", "tui")),
+    ]
+    for what, args, want in rules:
+        cases.append((f"rule: {what}", outcome(frontend.choose, *args), want))
+    looking = [
+        ("the other front end answers", ("tui", asks(core=("app",))), ["tui", "app"]),
+        ("the app is not installed", ("tui", asks(installed=("tui",), core=("app",))), ["tui"]),
+        ("the core does not answer", ("tui", asks()), ["tui"]),
+        ("the app is first when picked", ("app", asks(core=("tui",))), ["app", "tui"]),
+        ("the picked one is listed as it is", ("app", asks()), ["app"]),
+    ]
+    for what, args, want in looking:
+        cases.append((f"looking in: {what}", frontend.answering(*args), want))
+
+    listed = ('{"hidden_finished":0,"terminals":[{"address":"t9","agent":"claude-code","cwd":"/ws/payload",'
+              '"name":"payload","state":"live","status":"working","turn":3}]}')
+    two = '{"hidden_finished":0,"terminals":[{"address":"t9","agent":"claude-code"},{"address":"t12","agent":"claude"}]}'
+    none = '{"hidden_finished":0,"terminals":[]}'
+    started = '{"address":"t9","agent":"claude","cwd":"/ws/payload","name":"payload","state":"live","turn":0}'
+    pair = [{"name": "id", "required": True}, {"name": "name", "required": True}]
+    commands = json.dumps([
+        {"name": "space.rename", "args": pair, "about": ""},
+        {"name": "tab.rename", "args": pair, "about": ""},
+        {"name": "agent.focus", "args": [{"name": "terminal", "required": True}], "about": ""},
+    ])
+    no_focus = json.dumps([c for c in json.loads(commands) if c["name"] != "agent.focus"])
+    ok, not_shown = (0, '{"ok": true}'), (1, '{"error": "no such space"}')
+    lookup = "hc ls --label oxc0.space=payload --label oxc0.role=session --json"
+    status, listing, core = "herdr-app status", "herdr-app commands", "hc server status --json"
+    start = ("hc run --bg --keep --rm --no-parent --no-notify --json --name payload --cwd /ws/payload "
+             "--label herdr.space=oxc0-payload --label herdr.tab=oxc0-payload "
+             "--label oxc0.space=payload --label oxc0.role=session -- claude -n payload /0xc0:work-issue")
+    space = "herdr-app do space.rename --id oxc0-payload --name payload"
+    tab = "herdr-app do tab.rename --id oxc0-payload --name payload"
+    focus = "herdr-app do agent.focus --terminal t9"
+    by_hand = ["-n", "payload", "/0xc0:work-issue"]
+    window = {status: (0, "{}"), listing: (0, commands)}
+    no_window = "# the app's window does not answer: nothing to name or focus\n"
+    session = app.Session("t9", "payload")
+
+    def plays(what, recorded, action, ran, printed, result):
+        cases.append((f"app: {what}", play(app, recorded, action), (ran, printed, result)))
+
+    def find():
+        return app.find_session("payload")
+
+    def open_(*more):
+        return lambda: app.open_session("payload", "/ws/payload", by_hand, *more)
+
+    plays("a session found", {lookup: (0, listed)}, find, [lookup], "", session)
+    plays("no session found", {lookup: (0, none)}, find, [lookup], "", None)
+    plays("two sessions found: the first, and it says so", {lookup: (0, two)}, find, [lookup],
+          "payload: 2 sessions carry its labels (t9, t12); taking the first, t9\n", session)
+    plays("no core to look in", {lookup: (5, '{"error":{"kind":"unavailable","message":"no core running"}}')},
+          find, [lookup], "", "failed: hc ls: unavailable: no core running")
+    plays("the core answers", {core: (0, "{}")}, app.answers, [core], "", True)
+    plays("the core does not answer", {core: (5, "")}, app.answers, [core], "", False)
+    plays("the window answers", window, app.shows, [status], "", True)
+    plays("the window does not answer", {status: (2, "")}, app.shows, [status], "", False)
+    plays("a session opened with the window: named, retried until shown, focused",
+          {**window, start: (0, started), space: [not_shown, not_shown, ok], tab: ok, focus: ok},
+          open_(), [status, listing, start, space, space, space, tab, focus], "", None)
+    plays("a session opened without the window still starts, and says so",
+          {status: (2, ""), start: (0, started)}, open_(), [status, start],
+          "payload started as t9, and the app's window was not there to name or show it\n", None)
+    plays("a dry run with the window prints the commands and runs none of them", window, open_(True),
+          [status, listing],
+          "\n".join([start, space, tab, "herdr-app do agent.focus --terminal '<new terminal>'"]) + "\n", None)
+    plays("a dry run without the window prints the session's command", {status: (2, "")}, open_(True),
+          [status], start + "\n" + no_window, None)
+    plays("the orchestrator's has no prompt", {status: (2, "")},
+          lambda: app.open_session("orchestrator", "/ws", ["-n", "orchestrator"], True), [status],
+          start.replace("payload", "orchestrator").replace("/ws/orchestrator", "/ws")
+          .replace(" /0xc0:work-issue", "") + "\n" + no_window, None)
+    plays("a window that never shows the terminal", {**window, start: (0, started), space: not_shown}, open_(),
+          [status, listing, start] + [space] * app.ATTEMPTS, "",
+          "failed: payload started as t9, but the window did not show it: no such space")
+    plays("a window without a command used here fails before anything starts",
+          {status: (0, "{}"), listing: (0, no_focus)}, open_(), [status, listing], "",
+          "failed: herdr-app has no command agent.focus with terminal (`herdr-app commands` lists them): "
+          "was it changed?")
+    plays("a name taken tells how to adopt the session",
+          {status: (2, ""), start: (4, '{"error":{"kind":"name_taken","message":"payload is taken"}}')},
+          open_(), [status, start], "",
+          "failed: hc run: name_taken: payload is taken: a terminal has this name without the labels "
+          "of a session; if it is the session, adopt it with "
+          "`hc label <terminal> oxc0.space=payload oxc0.role=session`")
+    plays("a session found is focused through the window", {**window, focus: ok},
+          lambda: app.focus_session(session), [status, listing, focus], "", None)
+    plays("a session found, no window: it says so and focuses nothing", {status: (2, "")},
+          lambda: app.focus_session(session), [status],
+          "payload runs as t9, and the app's window is not there to show it\n", None)
+
+    forbidden = re.compile(r"^hc (send|keys|attach|get|read|label|kill|rm)\b|--force")
+    ran = [line for what, got, _ in cases if what.startswith("app: ") for line in got[0]]
+    cases.append(("the app backend never types into a terminal, reads one or forces",
+                  [line for line in ran if forbidden.search(line)], []))
+    return cases
+
+
 def self_test():
-    mention = "The `work-issue: done payload#82` line also waits until then."
+    mention ="The `work-issue: done payload#82` line also waits until then."
     cases = [
         ("payload", 82, "work-issue: done payload#82", "done payload#82"),
         ("payload", 82, "  work-issue: done payload#82  ", "done payload#82"),
@@ -203,16 +398,20 @@ def self_test():
     for settings, want in failed_plugins:
         print(f"FAIL org_plugins {settings!r}: want {want!r}, got {org_plugins(settings)!r}")
     layer_cases = [
-        ("the layer loads the tui backend", frontend.backend.__name__ == "frontend.tui"),
+        ("the autopilot is pinned to the tui backend", frontend.backend.__name__ == "frontend.tui"),
         ("the tui backend has every operation the layer defines", not frontend.lacking(frontend.backend)),
     ]
     failed_layer = [c for c in layer_cases if not c[1]]
     for what, _ in failed_layer:
         print(f"FAIL {what}: lacking {', '.join(frontend.lacking(frontend.backend)) or 'nothing'}")
-    total = len(cases) + len(plugin_cases) + len(layer_cases)
-    passed = total - len(failed) - len(failed_plugins) - len(failed_layer)
-    print(f"{passed}/{total} passed")
-    return not failed and not failed_plugins and not failed_layer
+    frontend_results = frontend_cases()
+    failed_frontend = [c for c in frontend_results if c[1] != c[2]]
+    for what, got, want in failed_frontend:
+        print(f"FAIL {what}:\n  want {want!r}\n  got  {got!r}")
+    total = len(cases) + len(plugin_cases) + len(layer_cases) + len(frontend_results)
+    failures = len(failed) + len(failed_plugins) + len(failed_layer) + len(failed_frontend)
+    print(f"{total - failures}/{total} passed")
+    return not failures
 
 
 def clean_up(d, session, dry):

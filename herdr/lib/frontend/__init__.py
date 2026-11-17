@@ -12,17 +12,28 @@ the backend's function of the same name does it. A space is named by its name.
 What an operation returns to be asked about later, a space, a tab or a
 session, is a handle: opaque, the scripts only hand it to another operation,
 or print a tab in a log line with `str()`.
+
+There is one backend per front end, `tui` and `app`. A script chooses one with
+`use(choose(...))`, and its operations then go to that backend. A backend may
+lack an operation a script does not use yet: asking it for one fails with a
+message, and `lacking()` says which. `answering()` lists the front ends to
+look in when a script must find something wherever it lives.
 """
 import functools
 import importlib
 import inspect
+import os
 from dataclasses import dataclass
 
 ENDED = "ended"      # no program runs in the session's terminal any more
 AT_REST = "at rest"  # idle or done
 BUSY = "busy"
 
+FRONTENDS = ("tui", "app")
+FRONTEND_ENV = "OXC0_HERDR_FRONTEND"
+
 OPERATIONS = []
+backend = None
 
 
 class Failed(Exception):
@@ -46,8 +57,78 @@ def operation(contract):
 
     @functools.wraps(contract)
     def call(*args, **kwargs):
-        return getattr(backend, contract.__name__)(*args, **kwargs)
+        if backend is None:
+            raise RuntimeError("no front end chosen: call frontend.use() first")
+        function = getattr(backend, contract.__name__, None)
+        if function is None:
+            raise Failed(f"the {name_of(backend)} front end does not offer {contract.__name__} yet")
+        return function(*args, **kwargs)
     return call
+
+
+def name_of(module):
+    return module.__name__.rsplit(".", 1)[-1]
+
+
+def load(name):
+    """The backend of the front end called `name`, `tui` or `app`."""
+    if name not in FRONTENDS:
+        raise Failed(f"{name!r} is not a front end: use {' or '.join(FRONTENDS)}")
+    return importlib.import_module(f"{__name__}.{name}")
+
+
+def use(name):
+    """Sends every operation to the backend of the front end called `name`."""
+    global backend
+    backend = load(name)
+
+
+def ask(name, question):
+    """What the backend of the front end `name` answers to `question`, one of
+    the operations `missing`, `answers` and `shows`, without making it the
+    one in use."""
+    return getattr(load(name), question)()
+
+
+def choose(option=None, environ=None, ask=ask):
+    """The front end to use, by the first rule that applies (README.md,
+    Opening a session by hand):
+
+      1. the one asked for: `option`, which is `--frontend`, or else the
+         variable `OXC0_HERDR_FRONTEND`
+      2. the one `environ` says this runs in: a pane of the TUI has
+         `HERDR_PANE_ID`, a terminal of the app `HC_TERMINAL_ID`; with both,
+         the TUI, since its server hands its own environment to its panes and
+         the app's core gives its terminals no `HERDR*` variable
+      3. the app if its window answers, otherwise the TUI
+
+    Fails when the one named is not a front end, or is not installed. `ask`
+    answers the backends' `missing` and `shows`, for a test to replace."""
+    environ = os.environ if environ is None else environ
+    if option or environ.get(FRONTEND_ENV):
+        name, why = (option, "--frontend") if option else (environ[FRONTEND_ENV], f"${FRONTEND_ENV}")
+        if name not in FRONTENDS:
+            raise Failed(f"{why}: {name!r} is not a front end: use {' or '.join(FRONTENDS)}")
+    elif environ.get("HERDR_PANE_ID"):
+        name, why = "tui", "this runs in one of its panes"
+    elif environ.get("HC_TERMINAL_ID"):
+        name, why = "app", "this runs in one of its terminals"
+    elif not ask("app", "missing") and ask("app", "shows"):
+        name, why = "app", "its window answers"
+    else:
+        name, why = "tui", "the app's window does not answer"
+    absent = ask(name, "missing")
+    if absent:
+        raise Failed(f"the {name} front end is not installed ({why}): {', '.join(absent)} not found in PATH")
+    return name
+
+
+def answering(first, ask=ask):
+    """The front ends to look in for something that may live in any of them:
+    `first`, whether or not it answers, then each of the others that is
+    installed and whose server answers."""
+    return [first] + [name for name in FRONTENDS
+                      if name != first and not ask(name, "missing") and ask(name, "answers")]
 
 
 def lacking(module):
@@ -55,6 +136,26 @@ def lacking(module):
     return [name for name in OPERATIONS
             if not callable(getattr(module, name, None))
             or inspect.signature(getattr(module, name)) != inspect.signature(globals()[name])]
+
+
+@operation
+def missing():
+    """The programs the front end needs that are not in PATH, a list of
+    names: empty when it is installed. Asked of a front end that is not the one
+    in use, through `ask`."""
+
+
+@operation
+def answers():
+    """Whether the front end's server answers, so that what lives in it can be
+    looked up. A question that never starts a server that is not running."""
+
+
+@operation
+def shows():
+    """Whether the front end has a window to show the operator what a script
+    opens or focuses. The app's is the one that may be closed while its core
+    runs; the TUI's is its server."""
 
 
 @operation
@@ -132,6 +233,3 @@ def start_pilot(name, directory, command):
 @operation
 def is_own_tab(tab):
     """Whether this very process runs in the tab."""
-
-
-backend = importlib.import_module(f"{__name__}.tui")

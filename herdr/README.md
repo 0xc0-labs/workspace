@@ -145,7 +145,81 @@ Pick a repo, and a tab named after it opens in its Herdr workspace, or a new
 workspace, with `claude -n <name> "/0xc0:work-issue"`: the session takes that
 repo's Ready issue of highest priority, and the next when it finishes. Pick
 the workspace, and the orchestrator opens: `claude -n orchestrator`. A
-session already open is focused, not opened twice.
+session already open is focused, not opened twice, in whichever front end it
+lives.
+
+### Which front end
+
+Herdr is two products with no shared base: the terminal app (`herdr`, the
+TUI), which has its own server, and the desktop app (`herdr-app`), a client of
+`herdr-core` that runs every terminal it shows, driven with `hc`. What runs in
+one does not show up in the other. `bin/open-session <dir>` opens the session
+in the front end in use, picked by the first rule that applies:
+
+1. The one asked for: `--frontend tui|app`, or `OXC0_HERDR_FRONTEND=tui|app`.
+   The option wins over the variable.
+2. The one the script is launched from: a terminal of the app has
+   `HC_TERMINAL_ID`, a pane of the TUI has `HERDR_PANE_ID`. With both set, the
+   TUI: its server hands its own environment to its panes, so a pane started
+   from a terminal of the app has both, while the core gives its terminals no
+   `HERDR*` variable.
+3. Outside both: the app if its window answers (`herdr-app status` exits 0),
+   otherwise the TUI.
+
+A value that is neither `tui` nor `app`, or a front end whose programs are not
+in `PATH` (`herdr` for the TUI, `hc` and `herdr-app` for the app), ends with a
+message that says which.
+
+Before opening anything, it looks for the session in the front end picked and
+in every other that answers, and focuses it where it finds it, whichever
+front end was picked. A front end answers when its server does, asked with a
+command that does not start one that is not running: `herdr status server`
+for the TUI, `hc server status` for the app's core. In the app a session is
+found by the core, so it is found while the window is closed too: the script
+then says the session runs and the window is not there to show it, and opens
+nothing.
+
+### In the app
+
+A session opened by hand is a core terminal:
+
+```sh
+hc run --bg --keep --rm --no-parent --no-notify --json --name <name> --cwd <dir> \
+  --label herdr.space=oxc0-<name> --label herdr.tab=oxc0-<name> \
+  --label oxc0.space=<name> --label oxc0.role=session \
+  -- claude -n <name> "/0xc0:work-issue"
+```
+
+The orchestrator's is `claude -n orchestrator`, with no prompt. Each part has
+a reason:
+
+- `herdr.space` and `herdr.tab` place the terminal in the app: a tab of the
+  space with that id. The app makes a new space and a new tab out of ids it
+  does not know, with exactly those ids, so they are ours and need no lookup.
+  `oxc0.space` and `oxc0.role` are how the script finds the session
+  (`hc ls --label oxc0.space=<name> --label oxc0.role=session`): a session the
+  operator opened by hand lives in a space with an id of the app's own.
+- `--no-parent --no-notify`: started from inside a terminal, a new terminal is
+  otherwise that terminal's sub-agent, ends with it, and has notes about it
+  typed into it.
+- `--keep`: without it the core runs a lost program's command again, which
+  here would start a new conversation by itself; with it, a shell takes its
+  place.
+- `--rm`: when Claude Code exits, the app closes the tab, and the space when
+  it was its last tab. No shell stays behind, unlike in the TUI, where a tab
+  outlives its session, and nothing finished is left in the core.
+
+The window, when it answers, only names and shows it: the space and the tab
+are renamed `<name>` (retried for a few seconds, since the app shows a new
+terminal a moment after `hc run` returns), and the session is focused. When it
+does not answer, the session still starts, with its space and tab unnamed, and
+the script says the window was not there. For the script to find a session
+the operator opened without it, the operator adopts it with
+`hc label <terminal> oxc0.space=<name> oxc0.role=session`; the script never
+does it.
+
+Nothing here types into a terminal or reads its screen: no `hc send`,
+`hc keys`, `hc attach`, `hc get` or `hc read`, and nothing with `--force`.
 
 ## Models
 
@@ -302,19 +376,32 @@ herdr-plugin.toml         the actions and their popups
 autopilot.conf            each repo's slots
 bin/open-picker           an action: opens a popup
 bin/pick                  the popups: the workspace and every repo cloned in it
-bin/open-session          opens or focuses one directory's session
+bin/open-session          opens or focuses one directory's session, in the
+                          front end in use
 bin/autopilot             the autopilot: its loop, and starting or toggling it
-lib/frontend/__init__.py  what the two scripts ask of Herdr, and the loading of
-                          the backend that does it
+lib/frontend/__init__.py  what the two scripts ask of Herdr, the rule that
+                          picks the front end, and the loading of the backend
+                          that does it
 lib/frontend/tui.py       the backend for Herdr's terminal app: every call to
                           the `herdr` binary the two scripts make
+lib/frontend/app.py       the backend for Herdr's desktop app: every call to
+                          `hc` and `herdr-app` the two scripts make
 ```
 
-The two scripts never run `herdr`: they ask `lib/frontend/`, in terms of
-spaces, tabs and sessions, and its backend, `tui`, translates them into
-`herdr`'s workspaces, tabs and agents.
+The two scripts never run `herdr`, `hc` or `herdr-app`: they ask
+`lib/frontend/`, in terms of spaces, tabs and sessions, and its backend
+translates them: `tui` into `herdr`'s workspaces, tabs and agents, `app` into
+the core's terminals and the window's spaces and tabs. `open-session` takes
+the backend by the rule in Opening a session by hand. The autopilot takes
+`tui` whichever front end the rule would pick, and `app` has only what
+`open-session` needs: the autopilot's operations come next
+(0xc0-labs/workspace#231). Asking a backend for an operation it lacks fails
+with a message.
 
-`bin/open-session <dir> --dry-run` prints what it would do, touching
-nothing. Both scripts need `python3`, from the OS: they are written in it,
-with its standard library alone. The autopilot runs `gh` through mise, from
-the workspace's `mise.toml`.
+`bin/open-session <dir> --dry-run`, with either `--frontend`, prints what it
+would do, touching nothing. `bin/autopilot --self-test` checks the rule, and
+the app backend reading answers of `hc` and `herdr-app` recorded from the
+real ones, with no Herdr running; it also says what each backend has. Both
+scripts need `python3`, from the OS: they are written in it, with its standard
+library alone. The autopilot runs `gh` through mise, from the workspace's
+`mise.toml`.
