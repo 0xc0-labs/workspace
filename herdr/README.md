@@ -189,7 +189,15 @@ herdr plugin install smarzban/herdr-file-viewer --ref "$file_viewer_ref" --yes
 
 It runs only when `herdr plugin list` does not show the plugin at that tag,
 so a second run changes nothing. Herdr never updates a plugin by itself.
-To bump it, change `file_viewer_ref` in its own commit,
+From Herdr 0.9.4, `herdr plugin update` does, on request only, at the ref
+recorded when the plugin was installed. For the file viewer that is the tag
+in `file_viewer_ref`: the command fetches it again and, if it now holds
+another commit than the installed one, installs that commit and runs the
+build step again; otherwise it says the plugin is up to date. It takes no
+`--ref`, so it cannot move the plugin to another tag, and fetching the same
+tag a second time is the case workspace#157 is about (Supply chain, below).
+It never updates a linked plugin, so it does not touch `0xc0-workspace`.
+To bump the file viewer, change `file_viewer_ref` in its own commit,
 `chore(herdr): bump herdr-file-viewer to X.Y.Z`, and run `./bootstrap.sh`
 on each machine: installing again with another `--ref` changes the version.
 
@@ -256,6 +264,34 @@ type = "plugin_action"
 command = "herdr-file-viewer.open-file-viewer-tab"
 description = "Open the file viewer in its own tab"
 ```
+
+## Upgrading Herdr
+
+Herdr is the operator's own install, not the workspace's: a Homebrew one on
+the operator's machine. Four steps, and only the third ends anything:
+
+1. The binary first, with whatever installed it: `brew upgrade herdr`
+   (Herdr's own `herdr update` is disabled for a Homebrew install). No
+   session ends. The server that is running keeps the version it started
+   with, and the new binary's commands talk to it while both speak the same
+   protocol version. When they do not, a command that talks to the server
+   fails with `protocol_mismatch` until step 3.
+2. Check what can be checked then, touching nothing: `herdr --version`;
+   `herdr status`, which shows both versions and whether the server's
+   protocol is compatible with the client's; `herdr plugin list`, which
+   still lists `0xc0-workspace` and the file viewer at its tag;
+   `bin/autopilot --self-test`; `bin/open-session <dir> --dry-run`; and
+   `bin/autopilot state <repo>`.
+3. The server runs the new version only once it is started again.
+   `herdr server stop` stops it, and that ends every pane's process: the
+   orchestrator, every repo session and every autopilot. So it is done when
+   nothing is working, never in passing, from a terminal outside Herdr.
+   Running `herdr` starts it again.
+4. Afterwards, `herdr plugin list` again, and `bin/autopilot start <repo>`
+   for each repo whose autopilot was on: it does not come back by itself.
+   Herdr restores the workspaces and their tabs, not their processes, so an
+   autopilot's tab may be there with no loop in it; `start` replaces it
+   (Autopilot, above).
 
 ## Files
 
