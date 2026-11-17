@@ -29,6 +29,7 @@ PAUSE = 0.25
 WAIT = 10
 LINES = 80
 PILOT = "autopilot"
+LOOP_SCRIPT = ("herdr", "bin", "autopilot")
 
 
 @dataclass
@@ -58,9 +59,11 @@ def call(*command):
     return subprocess.run(command, capture_output=True, text=True)
 
 
-def explain(p):
+def explain(p, private=False):
     """What a failed command said: hc answers `{"error": {kind, message, hint}}`,
-    herdr-app `{"error": text}`."""
+    herdr-app `{"error": text}`. When `private`, its output may be a terminal's
+    text: what is not an `error` of that shape is not repeated, only the exit
+    status is."""
     for text in (p.stdout, p.stderr):
         try:
             error = json.loads(text)["error"]
@@ -70,13 +73,17 @@ def explain(p):
             return str(error)
         hint = error.get("hint")
         return ": ".join(str(error[k]) for k in ("kind", "message") if error.get(k)) + (f" ({hint})" if hint else "")
+    if private:
+        return f"exit status {p.returncode}"
     return (p.stderr or p.stdout).strip() or f"exit status {p.returncode}"
 
 
-def run(*command):
+def run(*command, private=False):
+    """The standard output of `command`. A `private` one may be a terminal's
+    text: when it fails, the message says nothing of it, as `parse` does not."""
     p = call(*command)
     if p.returncode:
-        raise Failed(f"{' '.join(command[:3] if command[1] == 'do' else command[:2])}: {explain(p)}")
+        raise Failed(f"{' '.join(command[:3] if command[1] == 'do' else command[:2])}: {explain(p, private)}")
     return p.stdout
 
 
@@ -324,11 +331,18 @@ def workers(space, dry=False):
 def terminal(address):
     """What `hc get` says of a terminal, without its screen, which is the
     terminal's whole text: none of it is kept, not even in an error."""
-    answer = parse(run(HC, "get", address, "--json"), "hc get", private=True)
+    answer = parse(run(HC, "get", address, "--json", private=True), "hc get", private=True)
     if not isinstance(answer, dict):
         raise Failed("hc get: its answer is not a terminal")
     answer.pop("screen", None)
     return answer
+
+
+def in_front(address):
+    """The command line of what runs in front of the terminal: empty when `hc
+    get` has no `foreground` for it, as for one that just started. `hc get` has
+    it, `hc ls` does not."""
+    return (terminal(address).get("foreground") or {}).get("argv") or []
 
 
 def left_as_shell(session):
@@ -337,8 +351,8 @@ def left_as_shell(session):
     without this it would be taken for a session still starting for ever.
     What runs in front of the terminal tells: Claude Code's own command line
     carries the name the session was given, and `env` is Claude Code a moment
-    before it becomes it. `hc get` has `foreground`, `hc ls` does not."""
-    argv = (terminal(session.address).get("foreground") or {}).get("argv") or []
+    before it becomes it."""
+    argv = in_front(session.address)
     return bool(argv) and session.name not in argv and os.path.basename(argv[0]) not in ("claude", "env")
 
 
@@ -357,7 +371,8 @@ def session_state(session):
 
 
 def read_screen(session):
-    answer = parse(run(HC, "read", session.address, "--json", "--lines", str(LINES)), "hc read", private=True)
+    answer = parse(run(HC, "read", session.address, "--json", "--lines", str(LINES), private=True),
+                   "hc read", private=True)
     text = answer.get("text") if isinstance(answer, dict) else None
     if not isinstance(text, str):
         raise Failed("hc read: its answer has no text")
@@ -418,8 +433,25 @@ def pilot(name):
     return Tab(row["address"], row.get("name") or f"{name}-{PILOT}", live(row))
 
 
+def runs_loop(argv):
+    """Whether `argv` is the loop's command line: an interpreter, a path that
+    ends in `herdr/bin/autopilot`, then `run`. The path is not compared whole:
+    a loop started from another checkout of the workspace is the loop all the
+    same."""
+    return len(argv) > 2 and argv[2] == "run" and Path(argv[1]).parts[-3:] == LOOP_SCRIPT
+
+
 def pilot_alive(tab):
-    return tab.live
+    """Whether the loop itself runs in the autopilot's terminal. `live` says a
+    program does, not which: a loop the core lost may be replaced by a shell in
+    place, live with nothing of ours in it, and `start` must then close it and
+    start another. What runs in front tells, as for a session: the loop, or
+    `env`, which is it for a moment before it becomes it, or nothing yet; any
+    other command line is not the loop."""
+    if not tab.live:
+        return False
+    argv = in_front(tab.address)
+    return not argv or os.path.basename(argv[0]) == "env" or runs_loop(argv)
 
 
 def start_pilot(name, directory, command):

@@ -206,7 +206,9 @@ The arguments run as given, with no shell in between, and the core gives a
 terminal its own environment, not the caller's: that is why the variables go
 through `env`. A session has `--keep`, so that the core never runs its command
 again by itself, which would start a new conversation; a loop has none, since a
-loop run again reads the board and the sessions and goes on. Neither has
+loop run again reads the board and the sessions and goes on (`hc get` reads
+`"keep": true` for it all the same: what a restart of the core does to them,
+below). Neither has
 `--rm`: what is left of a terminal that ended is what the pilot reads.
 
 A session's state comes from the core, from `hc ls --all` filtered by the
@@ -228,10 +230,12 @@ like a session still starting. `hc ls` does not say what runs in front, but
 asks `hc get` and takes the session as ended when the command line in front
 is neither Claude Code's, which carries the name the session was given
 (`-n <name>`), nor `env`, which is it for a moment before it becomes it. That
-is the one place the pilot runs `hc get`: it drops the answer's `screen`, the
-terminal's whole text, as it reads it. No test could reach it, because it takes
-restarting the core: the self-test holds a stand-in for that answer, built from
-`hc schema`.
+is one of the two places the pilot runs `hc get`, the other being a live loop's
+terminal (below): it drops the answer's `screen`, the terminal's whole text, as
+it reads it, and a call that fails never says what it wrote, only the `error`
+it answered as JSON or else its exit status, as for `hc read`. No test could
+reach a shell in a session's place, because it takes restarting the core: the
+self-test holds a stand-in for that answer, built from `hc schema`.
 
 A session ends in this order: its screen is read (`hc read <t> --json --lines
 80`, whose `text` goes to the search for the last line and nowhere else: a
@@ -247,10 +251,25 @@ A pilot's state, from `hc ls --all` filtered by `oxc0.role=autopilot`:
 
 | The core has | `state` prints | What `start` and `toggle` do first |
 |---|---|---|
-| a live loop | `on` | `toggle`: `hc kill`, then `hc rm` |
+| a live terminal with the loop in front, or `env`, or nothing yet | `on` | `toggle`: `hc kill`, then `hc rm` |
+| a live terminal with anything else in front, a shell included | `dead` | `hc kill`, `hc wait`, then `hc rm` it |
 | none live, a finished one that exited with 0 | `off` | `hc rm` it |
 | none live, a finished one with another exit code, or none | `dead` | `hc rm` it |
 | none | `off` | |
+
+`live` says a program runs in the loop's terminal, not which: a loop that was
+lost may be a shell in its place, live with no loop. So for a live terminal
+`state` asks `hc get`, as it does for a session that reports nothing, and reads
+`foreground.argv`, as recorded from a running loop (2026-11-17, `hc` 0.1.21): the
+interpreter, then `<workspace>/herdr/bin/autopilot`, then `run`, then the
+repo's directory. The loop is the command line whose second word ends in
+`herdr/bin/autopilot` and whose third is `run`: the path is not compared whole,
+so a loop started from another checkout of the workspace is the loop. `env` in
+front is the loop a moment after `start`, before it is, and a terminal with no
+`foreground` yet is the same moment. Anything else, a shell or another
+program, is not the loop: `dead`, so that `start` closes the terminal and
+starts a new loop, as for one that finished. The call is one `hc get` per live
+terminal, its `screen` dropped.
 
 A loop that ends because nothing is left exits 0: its tab closes by itself,
 and the next `state`, `start` or `toggle` removes what is left of it. A loop
@@ -272,13 +291,21 @@ say, since it ends the operator's sessions and none was tried:
 - `hc server stop`: "stops the core and its programs. Kept terminals remain
   pending and get new shells when the core next starts". The sessions, which
   are kept, come back as a shell each, `live` with nothing in front and
-  nothing reported: the pilot ends them as above. The loop is not kept: it
-  ends with the core, `state` says `dead` or `off` by its exit code, and
-  `start` is what brings it back, as after the TUI's server stops. A worktree
-  with unpushed work stays.
+  nothing reported: the pilot ends them as above. What the core does to the
+  loop is not known: started without `--keep`, it reads `"keep": true` in `hc
+  get` (observed 2026-11-17, `hc` 0.1.21), and `hc run` has no flag that turns
+  it off. It may come back as a shell like a session, `live` with no loop, or
+  finish with an exit code. `state` does not depend on which: it tells a loop
+  from what took its place by what runs in front (above), and says `dead` or
+  `off` by the exit code for a finished one. `start` is what brings it back, as
+  after the TUI's server stops. A worktree with unpushed work stays.
 - The core or a program lost: a kept terminal is replaced by a shell after a
   grace delay, one that is not kept finishes with a `reason` (`holder_lost`,
-  `signaled`), so a loop is `dead` and a session a shell again.
+  `signaled`), a session a shell again. A loop reads as kept, so which of the
+  two it gets was not seen. Either way `state` does not say `on`.
+
+Untried: what the core does to a loop when it stops or loses it. Stopping the
+core is the operator's, and it ends every session, so it was not tried.
 
 ## Opening a session by hand
 
@@ -566,12 +593,15 @@ reading the answers of `hc` and `herdr-app`, and the autopilot's flow of
 also says what each backend has. Of those answers, the rows of `hc ls`, the
 answers of `hc run`, `hc rm`, `hc wait` and `hc read` (`{"complete": true,
 "how": "stitched", "text": …}`), the fields of `hc get` (including
-`foreground`) and `herdr-app do`'s `{"ok": true}` were recorded from the real
-programs (0xc0-labs/workspace#226, #231); the last line of a session is found
-in a recorded answer of `hc read`. The others are stand-ins of the documented
-shape, from `hc schema` and each command's help: the `hc get` of a session
-left as a shell, which takes restarting the core, the answer of `hc kill`,
-which the backend does not read, the window's list of commands and the
-errors. Both scripts need `python3`, from the OS: they are written in it, with its
-standard library alone. The autopilot runs `gh` through mise, from the
-workspace's `mise.toml`.
+`foreground`, a running loop's too, 0xc0-labs/workspace#235) and `herdr-app
+do`'s `{"ok": true}` were recorded from the real programs
+(0xc0-labs/workspace#226, #231); the last line of a session is found in a
+recorded answer of `hc read`. The others are stand-ins of the documented
+shape, from `hc schema` and each command's help: the `hc get` of a session or
+a loop left as a shell, which takes restarting the core, the answer of `hc
+kill`, which the backend does not read, the window's list of commands and the
+errors. It also checks that a failed `hc get` or `hc read` says only its JSON
+`error` or its exit status, and that a live loop's terminal is `on` with the
+loop, `env` or nothing in front and `dead` with anything else. Both scripts
+need `python3`, from the OS: they are written in it, with its standard library
+alone. The autopilot runs `gh` through mise, from the workspace's `mise.toml`.
