@@ -312,14 +312,14 @@ def app_autopilot_cases(app):
     session left as a shell, built from `hc schema`, and `hc kill`'s answer,
     which the backend does not read."""
     cases = []
-    session = app.Session("t7", "payload-19", {})
-    tab, ended = app.Tab("t7", "payload-19", True), app.Tab("t8", "payload-21", False)
+    session = app.Session("t7", "gitops-19", {})
+    tab, ended = app.Tab("t7", "gitops-19", True), app.Tab("t8", "gitops-21", False)
 
     def plays(what, recorded, action, ran, printed, result):
         cases.append((f"app autopilot: {what}", play(app, recorded, action), (ran, printed, result)))
 
     def row(**fields):
-        return {"address": "t7", "agent": "claude-code", "cwd": "/ws/payload", "name": "payload-19",
+        return {"address": "t7", "agent": "claude-code", "cwd": "/ws/gitops", "name": "gitops-19",
                 "state": "live", "turn": 0, **fields}
 
     def ls(*rows):
@@ -327,35 +327,35 @@ def app_autopilot_cases(app):
 
     def terminal(foreground=None):
         return 0, json.dumps({"address": "t7", "argv": ["env", "OXC0_AUTOPILOT=1", "claude"], "keep": True,
-                              "labels": {"oxc0.role": "worker", "herdr.seen": "0"}, "name": "payload-19",
+                              "labels": {"oxc0.role": "worker", "herdr.seen": "0"}, "name": "gitops-19",
                               "notify": False, "parent": None, "rm": False, "state": "live", "turn": 0,
                               "screen": SCREEN, **({"foreground": foreground} if foreground else {})})
 
-    claude = ["claude", "--permission-mode", "auto", "-n", "payload-19", "-w", "payload-19",
-              "/0xc0:work-issue payload#19"]
+    claude = ["claude", "--permission-mode", "auto", "-n", "gitops-19", "-w", "gitops-19",
+              "/0xc0:work-issue gitops#19"]
     get = "hc get t7 --json"
     not_found = (3, '{"error":{"kind":"not_found","message":"t7 was removed"}}')
 
-    plays("a space is there as soon as it has a name", {}, lambda: app.find_space("payload"), [], "",
-          app.Space("payload"))
+    plays("a space is there as soon as it has a name", {}, lambda: app.find_space("gitops"), [], "",
+          app.Space("gitops"))
 
     # The sessions of a space.
-    listed = "hc ls --all --label oxc0.space=payload --label oxc0.role=worker --json"
+    listed = "hc ls --all --label oxc0.space=gitops --label oxc0.role=worker --json"
     plays("the sessions of a space: one per terminal named after an issue, finished ones included",
           {listed: ls(row(status="working", turn=1),
-                      row(address="t8", name="payload-21", state="finished", exit_code=129, reason="killed", turn=1),
-                      row(address="t9", name=None), row(address="t10", name="payload-x"),
+                      row(address="t8", name="gitops-21", state="finished", exit_code=129, reason="killed", turn=1),
+                      row(address="t9", name=None), row(address="t10", name="gitops-x"),
                       row(address="t11", name="other-3"))},
           lambda: [(w.n, w.name, str(w.tab), w.tab.live, w.session.address)
-                   for w in app.workers(app.find_space("payload"))],
-          [listed], "", [(19, "payload-19", "t7", True, "t7"), (21, "payload-21", "t8", False, "t8")])
-    plays("no sessions", {listed: ls()}, lambda: list(app.workers(app.find_space("payload"))), [listed], "", [])
+                   for w in app.workers(app.find_space("gitops"))],
+          [listed], "", [(19, "gitops-19", "t7", True, "t7"), (21, "gitops-21", "t8", False, "t8")])
+    plays("no sessions", {listed: ls()}, lambda: list(app.workers(app.find_space("gitops"))), [listed], "", [])
     plays("an answer without a list of terminals", {listed: (0, "{}")},
-          lambda: list(app.workers(app.find_space("payload"))), [listed], "",
+          lambda: list(app.workers(app.find_space("gitops"))), [listed], "",
           "failed: hc ls: its answer has no list of terminals")
 
     # A session's state, row by row of the table in README.md, In the app.
-    shell = {"argv": ["-zsh"], "cwd": "/ws/payload", "name": "zsh", "pid": 4300}
+    shell = {"argv": ["-zsh"], "cwd": "/ws/gitops", "name": "zsh", "pid": 4300}
     states = [
         ("finished: its program exited", dict(state="finished", exit_code=0, reason="exited", turn=1), False,
          frontend.ENDED),
@@ -385,20 +385,20 @@ def app_autopilot_cases(app):
     for what, fields, foreground, want in states:
         asked = foreground is not False
         plays(f"a session's state, {what}", {get: terminal(foreground or None)} if asked else {},
-              lambda fields=fields: app.session_state(app.Session("t7", "payload-19", row(**fields))),
+              lambda fields=fields: app.session_state(app.Session("t7", "gitops-19", row(**fields))),
               [get] if asked else [], "", want)
     plays("a session whose state cannot be read", {get: not_found},
-          lambda: app.session_state(app.Session("t7", "payload-19", row())), [get], "",
+          lambda: app.session_state(app.Session("t7", "gitops-19", row())), [get], "",
           "failed: hc get: not_found: t7 was removed")
 
     # What `hc get` and `hc read` answer is a terminal's text: it goes nowhere.
-    leaked = play(app, {get: terminal(shell)}, lambda: app.session_state(app.Session("t7", "payload-19", row())))
+    leaked = play(app, {get: terminal(shell)}, lambda: app.session_state(app.Session("t7", "gitops-19", row())))
     cases.append(("the screen hc get answers is dropped and goes nowhere", SCREEN in repr(leaked), False))
     plays("hc get answering what is not JSON says nothing of it", {get: (0, f"{SCREEN} is not JSON")},
-          lambda: app.session_state(app.Session("t7", "payload-19", row())), [get], "",
+          lambda: app.session_state(app.Session("t7", "gitops-19", row())), [get], "",
           "failed: hc get: its answer is not JSON")
     read = "hc read t7 --json --lines 80"
-    screen = "\n".join(["Opened the PR.", "⏺ work-issue: done payload#19", "", "> "])
+    screen = "\n".join(["Opened the PR.", "⏺ work-issue: done gitops#19", "", "> "])
     answer = (0, json.dumps({"complete": True, "how": "stitched", "text": screen}))
     plays("a session's last lines: the text of hc read's answer", {read: answer},
           lambda: app.read_screen(session), [read], "", screen)
@@ -421,7 +421,7 @@ def app_autopilot_cases(app):
     ]
     for what, reply, said in failures:
         for call_, line, action in (
-                ("hc get", get, lambda: app.session_state(app.Session("t7", "payload-19", row()))),
+                ("hc get", get, lambda: app.session_state(app.Session("t7", "gitops-19", row()))),
                 ("hc read", read, lambda: app.read_screen(session))):
             plays(f"{call_} failing with {what} says {said}", {line: reply}, action, [line], "",
                   f"failed: {call_}: {said}")
@@ -430,13 +430,13 @@ def app_autopilot_cases(app):
           "failed: hc rm: t7: cannot be removed")
     read_back = play(app, {read: answer}, lambda: app.read_screen(session))[2]
     last_lines = [
-        ("done", read_back, "done payload#19"),
-        ("stopped", "⏺ work-issue: stopped payload#19: checks red\n> ", "stopped payload#19: checks red"),
-        ("a sentence that quotes it", "I will print `work-issue: done payload#19` when it is merged.", None),
+        ("done", read_back, "done gitops#19"),
+        ("stopped", "⏺ work-issue: stopped gitops#19: checks red\n> ", "stopped gitops#19: checks red"),
+        ("a sentence that quotes it", "I will print `work-issue: done gitops#19` when it is merged.", None),
     ]
     for what, text, want in last_lines:
         cases.append((f"the last line, from a recorded hc read answer: {what}",
-                      find_last_line("payload", 19, text), want))
+                      find_last_line("gitops", 19, text), want))
 
     # Ending a session: its screen is read before, never after.
     kill, wait, rm = "hc kill t7", "hc wait t7 --timeout 10 --json", "hc rm t7"
@@ -449,7 +449,7 @@ def app_autopilot_cases(app):
           lambda: app.close_tab(ended), ["hc rm t8"], "", None)
     plays("a session that does not end is not removed and not waited for for ever",
           {kill: killed, wait: (0, '{"ended":false,"reason":"timeout","turn":1}'), rm: removed},
-          lambda: app.close_tab(tab), [kill, wait], "", "failed: payload-19 did not end 10 seconds after hc kill")
+          lambda: app.close_tab(tab), [kill, wait], "", "failed: gitops-19 did not end 10 seconds after hc kill")
     plays("a session already gone is not an error", {kill: not_found},
           lambda: app.close_tab(tab), [kill], "", None)
     plays("a session removed meanwhile is not an error", {kill: killed, wait: waited, rm: not_found},
@@ -464,20 +464,20 @@ def app_autopilot_cases(app):
 
     # Starting a session.
     command = shlex.join(["claude", "--permission-mode", "auto", "--settings", "/ws/.worktrees/.hooks.json",
-                          "-n", "payload-19", "-w", "payload-19", "/0xc0:work-issue payload#19"])
-    start = ("hc run --bg --keep --no-parent --no-notify --json --name payload-19 --cwd /ws/payload "
-             "--label herdr.space=oxc0-payload --label herdr.tab=oxc0-payload-19 "
-             "--label oxc0.space=payload --label oxc0.role=worker --label oxc0.issue=19 "
+                          "-n", "gitops-19", "-w", "gitops-19", "/0xc0:work-issue gitops#19"])
+    start = ("hc run --bg --keep --no-parent --no-notify --json --name gitops-19 --cwd /ws/gitops "
+             "--label herdr.space=oxc0-gitops --label herdr.tab=oxc0-gitops-19 "
+             "--label oxc0.space=gitops --label oxc0.role=worker --label oxc0.issue=19 "
              "-- env OXC0_AUTOPILOT=1 claude --permission-mode auto --settings /ws/.worktrees/.hooks.json "
-             "-n payload-19 -w payload-19 '/0xc0:work-issue payload#19'")
-    started = (0, '{"address":"t7","agent":"claude","cwd":"/ws/payload","name":"payload-19","state":"live","turn":0}')
+             "-n gitops-19 -w gitops-19 '/0xc0:work-issue gitops#19'")
+    started = (0, '{"address":"t7","agent":"claude","cwd":"/ws/gitops","name":"gitops-19","state":"live","turn":0}')
     status, ok = "herdr-app status", (0, '{"ok": true}')
     not_shown = (1, '{"error": "no such space"}')
-    space, tab_rename = ("herdr-app do space.rename --id oxc0-payload --name payload",
-                         "herdr-app do tab.rename --id oxc0-payload-19 --name payload-19")
+    space, tab_rename = ("herdr-app do space.rename --id oxc0-gitops --name gitops",
+                         "herdr-app do tab.rename --id oxc0-gitops-19 --name gitops-19")
 
     def begin(**more):
-        return lambda: app.start_session(app.Space("payload"), "payload-19", "/ws/payload", command,
+        return lambda: app.start_session(app.Space("gitops"), "gitops-19", "/ws/gitops", command,
                                          {"OXC0_AUTOPILOT": "1"}, **more)
 
     plays("a session starts with its command in the terminal's creation, then is named, retried until shown",
@@ -488,58 +488,58 @@ def app_autopilot_cases(app):
     plays("a window that never shows the terminal is said, not an error",
           {status: (0, "{}"), start: started, space: not_shown}, begin(),
           [status, start] + [space] * app.ATTEMPTS,
-          "payload-19 started as t7, but the window did not show it to name it: no such space\n", None)
+          "gitops-19 started as t7, but the window did not show it to name it: no such space\n", None)
     plays("a dry run with the window prints the commands and runs none of them", {status: (0, "{}")},
           begin(dry=True), [status], "\n".join([start, space, tab_rename]) + "\n", None)
     plays("a dry run without the window prints the session's command", {status: (2, "")},
           begin(dry=True), [status], start + "\n# the app's window does not answer: nothing to name\n", None)
     plays("a name a live terminal has is said", {
-        status: (2, ""), start: (4, '{"error":{"kind":"name_taken","message":"payload-19 is taken"}}')},
-          begin(), [status, start], "", "failed: hc run: name_taken: payload-19 is taken")
+        status: (2, ""), start: (4, '{"error":{"kind":"name_taken","message":"gitops-19 is taken"}}')},
+          begin(), [status, start], "", "failed: hc run: name_taken: gitops-19 is taken")
     plays("a name that is not an issue's of the space", {},
-          lambda: app.start_session(app.Space("payload"), "other-3", "/ws/payload", command, {}), [], "",
-          "failed: other-3 is not a session of payload: its name is payload-<issue>")
+          lambda: app.start_session(app.Space("gitops"), "other-3", "/ws/gitops", command, {}), [], "",
+          "failed: other-3 is not a session of gitops: its name is gitops-<issue>")
     plays("a session with no variables has no env in front",
           {status: (2, ""), start.replace("env OXC0_AUTOPILOT=1 ", ""): started},
-          lambda: app.start_session(app.Space("payload"), "payload-19", "/ws/payload", command, {}),
+          lambda: app.start_session(app.Space("gitops"), "gitops-19", "/ws/gitops", command, {}),
           [status, start.replace("env OXC0_AUTOPILOT=1 ", "")], "", None)
 
     # The pilot's loop.
-    pilot_ls = "hc ls --all --label oxc0.space=payload --label oxc0.role=autopilot --json"
-    loop = shlex.join(["/ws/my herdr/bin/autopilot", "run", "/ws/payload"])
-    start_loop = ("hc run --bg --no-parent --no-notify --json --name payload-autopilot --cwd /ws/payload "
-                  "--label herdr.space=oxc0-payload --label herdr.tab=oxc0-payload-autopilot "
-                  "--label oxc0.space=payload --label oxc0.role=autopilot "
-                  "-- env OXC0_HERDR_FRONTEND=app '/ws/my herdr/bin/autopilot' run /ws/payload")
-    loop_started = (0, '{"address":"t3","agent":"python3","cwd":"/ws/payload","name":"payload-autopilot",'
+    pilot_ls = "hc ls --all --label oxc0.space=gitops --label oxc0.role=autopilot --json"
+    loop = shlex.join(["/ws/my herdr/bin/autopilot", "run", "/ws/gitops"])
+    start_loop = ("hc run --bg --no-parent --no-notify --json --name gitops-autopilot --cwd /ws/gitops "
+                  "--label herdr.space=oxc0-gitops --label herdr.tab=oxc0-gitops-autopilot "
+                  "--label oxc0.space=gitops --label oxc0.role=autopilot "
+                  "-- env OXC0_HERDR_FRONTEND=app '/ws/my herdr/bin/autopilot' run /ws/gitops")
+    loop_started = (0, '{"address":"t3","agent":"python3","cwd":"/ws/gitops","name":"gitops-autopilot",'
                        '"state":"live","turn":0}')
-    loop_tab = "herdr-app do tab.rename --id oxc0-payload-autopilot --name autopilot"
+    loop_tab = "herdr-app do tab.rename --id oxc0-gitops-autopilot --name autopilot"
     plays("a pilot's loop starts with the front end in its command, then is named", {
         status: (0, "{}"), start_loop: loop_started, space: ok, loop_tab: ok},
-          lambda: app.start_pilot("payload", "/ws/payload", loop), [status, start_loop, space, loop_tab], "", None)
+          lambda: app.start_pilot("gitops", "/ws/gitops", loop), [status, start_loop, space, loop_tab], "", None)
     plays("a pilot's loop starts when the window does not answer", {status: (2, ""), start_loop: loop_started},
-          lambda: app.start_pilot("payload", "/ws/payload", loop), [status, start_loop], "", None)
+          lambda: app.start_pilot("gitops", "/ws/gitops", loop), [status, start_loop], "", None)
 
     # The pilot's state, row by row of the table in README.md, In the app.
     def found():
-        tab_found = app.pilot("payload")
+        tab_found = app.pilot("gitops")
         return (str(tab_found), app.pilot_alive(tab_found)) if tab_found else None
 
     def loop_row(**fields):
-        return row(**{"address": "t3", "name": "payload-autopilot", **fields})
+        return row(**{"address": "t3", "name": "gitops-autopilot", **fields})
 
     # `hc get` of a loop, as recorded on 2026-11-17 (hc 0.1.21): `keep` is true
     # though the loop was started without `--keep`.
     loop_get = "hc get t3 --json"
     interpreter = ("/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/"
                    "Resources/Python.app/Contents/MacOS/Python")
-    running = {"argv": [interpreter, "/ws/herdr/bin/autopilot", "run", "/ws/payload"]}
+    running = {"argv": [interpreter, "/ws/herdr/bin/autopilot", "run", "/ws/gitops"]}
 
     def loop_terminal(foreground=None):
-        return 0, json.dumps({"address": "t3", "name": "payload-autopilot", "keep": True, "rm": False,
+        return 0, json.dumps({"address": "t3", "name": "gitops-autopilot", "keep": True, "rm": False,
                               "parent": None, "notify": False, "screen": SCREEN,
-                              "labels": {"herdr.space": "oxc0-payload", "herdr.tab": "oxc0-payload-autopilot",
-                                         "oxc0.role": "autopilot", "oxc0.space": "payload"},
+                              "labels": {"herdr.space": "oxc0-gitops", "herdr.tab": "oxc0-gitops-autopilot",
+                                         "oxc0.role": "autopilot", "oxc0.space": "gitops"},
                               **({"foreground": foreground} if foreground else {})})
 
     gone = dict(state="finished", turn=0)
@@ -568,9 +568,9 @@ def app_autopilot_cases(app):
               want)
 
     # A live terminal is on only while the loop is what runs in front of it.
-    other_checkout = {"argv": [interpreter, "/other/ws/herdr/bin/autopilot", "run", "/ws/payload"]}
-    env_in_front = {"argv": ["env", "OXC0_HERDR_FRONTEND=app", "/ws/herdr/bin/autopilot", "run", "/ws/payload"]}
-    shebang_env = {"argv": ["/usr/bin/env", "python3", "/ws/herdr/bin/autopilot", "run", "/ws/payload"]}
+    other_checkout = {"argv": [interpreter, "/other/ws/herdr/bin/autopilot", "run", "/ws/gitops"]}
+    env_in_front = {"argv": ["env", "OXC0_HERDR_FRONTEND=app", "/ws/herdr/bin/autopilot", "run", "/ws/gitops"]}
+    shebang_env = {"argv": ["/usr/bin/env", "python3", "/ws/herdr/bin/autopilot", "run", "/ws/gitops"]}
     in_front = [
         ("the loop in front", running, True),
         ("the loop started from another checkout", other_checkout, True),
@@ -581,12 +581,12 @@ def app_autopilot_cases(app):
         ("a shell where the loop was", shell, False),
         ("a login shell by its absolute path", {"argv": ["/bin/zsh", "-l"]}, False),
         ("another program", {"argv": ["vim", "notes.md"]}, False),
-        ("another script of the workspace", {"argv": [interpreter, "/ws/herdr/bin/open-session", "/ws/payload"]},
+        ("another script of the workspace", {"argv": [interpreter, "/ws/herdr/bin/open-session", "/ws/gitops"]},
          False),
         ("the loop's script asked something else", {"argv": [interpreter, "/ws/herdr/bin/autopilot", "state",
-                                                            "payload"]}, False),
+                                                            "gitops"]}, False),
         ("the loop's script alone", {"argv": [interpreter, "/ws/herdr/bin/autopilot"]}, False),
-        ("an autopilot script of another project", {"argv": [interpreter, "/ws/bin/autopilot", "run", "/ws/payload"]},
+        ("an autopilot script of another project", {"argv": [interpreter, "/ws/bin/autopilot", "run", "/ws/gitops"]},
          False),
     ]
     for what, foreground, want in in_front:
@@ -624,12 +624,12 @@ def stand_in_cases(tui):
     saved = tui.herdr, tui.run
     tui.herdr, tui.run = herdr, lambda *args: ran.append(args) or ""
     try:
-        tui.start_pilot("payload", "/ws/payload", "/ws/herdr/bin/autopilot run /ws/payload")
+        tui.start_pilot("gitops", "/ws/gitops", "/ws/herdr/bin/autopilot run /ws/gitops")
         cases.append(("tui: its loop is told its front end in the command typed into its pane",
-                      ran, [(tui.HERDR, "pane", "run", "p1", "/ws/herdr/bin/autopilot run /ws/payload --frontend tui")]))
+                      ran, [(tui.HERDR, "pane", "run", "p1", "/ws/herdr/bin/autopilot run /ws/gitops --frontend tui")]))
         before = len(herdr_calls), len(ran)
-        tui.start_session(None, "payload-19", "/ws/payload", "claude", {}, dry=True)
-        tui.close_tab(tui.Tab("w1:1", "payload"), dry=True)
+        tui.start_session(None, "gitops-19", "/ws/gitops", "claude", {}, dry=True)
+        tui.close_tab(tui.Tab("w1:1", "gitops"), dry=True)
         cases.append(("tui: a dry start and a dry close run nothing", (len(herdr_calls), len(ran)), before))
     finally:
         tui.herdr, tui.run = saved
@@ -666,7 +666,7 @@ def pilot_flow_cases():
     front end that answers, with a stand-in backend per front end that logs
     each operation as `<front end>.<operation>`: nothing runs."""
     cases = []
-    d = Path("/ws/payload")
+    d = Path("/ws/gitops")
 
     def flow(what, action, found, picked="tui", core=()):
         calls, out = [], io.StringIO()
@@ -703,51 +703,51 @@ def pilot_flow_cases():
             got = flow(what, globals()[action], found, picked, core)
             cases.append((f"{action}, {what}", got, (calls, printed, result)))
 
-    on, off = "payload: autopilot on\n", "payload: autopilot off\n"
+    on, off = "gitops: autopilot on\n", "gitops: autopilot off\n"
     flows("only the TUI answers, the pilot is on there", {"tui": "live"}, "tui", (),
           (["tui.pilot", "tui.pilot_alive"], "", "on"),
-          (["tui.pilot", "tui.pilot_alive"], "payload: autopilot already on\n", None),
+          (["tui.pilot", "tui.pilot_alive"], "gitops: autopilot already on\n", None),
           (["tui.pilot", "tui.close_tab"], off, None))
     flows("only the TUI answers, the pilot is dead there", {"tui": "dead"}, "tui", (),
           (["tui.pilot", "tui.pilot_alive"], "", "dead"),
-          (["tui.pilot", "tui.pilot_alive", "tui.close_tab", "tui.start_pilot payload"],
-           "payload: autopilot was dead; restarting\n" + on, None),
+          (["tui.pilot", "tui.pilot_alive", "tui.close_tab", "tui.start_pilot gitops"],
+           "gitops: autopilot was dead; restarting\n" + on, None),
           (["tui.pilot", "tui.close_tab"], off, None))
     flows("only the TUI answers, no pilot", {}, "tui", (),
           (["tui.pilot"], "", "off"),
-          (["tui.pilot", "tui.start_pilot payload"], on, None),
-          (["tui.pilot", "tui.start_pilot payload"], on, None))
+          (["tui.pilot", "tui.start_pilot gitops"], on, None),
+          (["tui.pilot", "tui.start_pilot gitops"], on, None))
     flows("the app does not answer, so it is not asked, though it has one", {"app": "live"}, "tui", (),
           (["tui.pilot"], "", "off"),
-          (["tui.pilot", "tui.start_pilot payload"], on, None),
-          (["tui.pilot", "tui.start_pilot payload"], on, None))
+          (["tui.pilot", "tui.start_pilot gitops"], on, None),
+          (["tui.pilot", "tui.start_pilot gitops"], on, None))
     flows("the pilot is on in the app, the TUI picked", {"app": "live"}, "tui", ("app",),
           (["tui.pilot", "app.pilot", "app.pilot_alive"], "", "on"),
-          (["tui.pilot", "app.pilot", "app.pilot_alive"], "payload: autopilot already on (in the app)\n", None),
-          (["tui.pilot", "app.pilot", "app.close_tab"], "payload: autopilot off (in the app)\n", None))
+          (["tui.pilot", "app.pilot", "app.pilot_alive"], "gitops: autopilot already on (in the app)\n", None),
+          (["tui.pilot", "app.pilot", "app.close_tab"], "gitops: autopilot off (in the app)\n", None))
     flows("the pilot is on in the TUI, the app picked", {"tui": "live"}, "app", ("tui",),
           (["app.pilot", "tui.pilot", "tui.pilot_alive"], "", "on"),
-          (["app.pilot", "tui.pilot", "tui.pilot_alive"], "payload: autopilot already on (in the TUI)\n", None),
-          (["app.pilot", "tui.pilot", "tui.close_tab"], "payload: autopilot off (in the TUI)\n", None))
+          (["app.pilot", "tui.pilot", "tui.pilot_alive"], "gitops: autopilot already on (in the TUI)\n", None),
+          (["app.pilot", "tui.pilot", "tui.close_tab"], "gitops: autopilot off (in the TUI)\n", None))
     flows("the pilot is on in the app, the app picked", {"app": "live"}, "app", ("tui",),
           (["app.pilot", "tui.pilot", "app.pilot_alive"], "", "on"),
-          (["app.pilot", "tui.pilot", "app.pilot_alive"], "payload: autopilot already on\n", None),
+          (["app.pilot", "tui.pilot", "app.pilot_alive"], "gitops: autopilot already on\n", None),
           (["app.pilot", "tui.pilot", "app.close_tab"], off, None))
     flows("the pilot is dead in the TUI, the app picked", {"tui": "dead"}, "app", ("tui",),
           (["app.pilot", "tui.pilot", "tui.pilot_alive"], "", "dead"),
-          (["app.pilot", "tui.pilot", "tui.pilot_alive", "tui.close_tab", "app.start_pilot payload"],
-           "payload: autopilot was dead (in the TUI); restarting\n" + on, None),
-          (["app.pilot", "tui.pilot", "tui.close_tab"], "payload: autopilot off (in the TUI)\n", None))
+          (["app.pilot", "tui.pilot", "tui.pilot_alive", "tui.close_tab", "app.start_pilot gitops"],
+           "gitops: autopilot was dead (in the TUI); restarting\n" + on, None),
+          (["app.pilot", "tui.pilot", "tui.close_tab"], "gitops: autopilot off (in the TUI)\n", None))
     flows("on in the app, dead in the TUI, the TUI picked: on wins", {"app": "live", "tui": "dead"}, "tui", ("app",),
           (["tui.pilot", "app.pilot", "tui.pilot_alive", "app.pilot_alive"], "", "on"),
           (["tui.pilot", "app.pilot", "tui.pilot_alive", "app.pilot_alive"],
-           "payload: autopilot already on (in the app)\n", None),
+           "gitops: autopilot already on (in the app)\n", None),
           (["tui.pilot", "app.pilot", "tui.close_tab", "app.close_tab"],
-           "payload: autopilot off\npayload: autopilot off (in the app)\n", None))
+           "gitops: autopilot off\ngitops: autopilot off (in the app)\n", None))
     flows("no pilot in either", {}, "app", ("tui",),
           (["app.pilot", "tui.pilot"], "", "off"),
-          (["app.pilot", "tui.pilot", "app.start_pilot payload"], on, None),
-          (["app.pilot", "tui.pilot", "app.start_pilot payload"], on, None))
+          (["app.pilot", "tui.pilot", "app.start_pilot gitops"], on, None),
+          (["app.pilot", "tui.pilot", "app.start_pilot gitops"], on, None))
 
     def parsed(command, rest):
         try:
@@ -794,7 +794,7 @@ def frontend_cases():
     frontend.backend = types.ModuleType("frontend.stand_in")
     try:
         cases.append(("an operation a backend lacks fails with a message",
-                      outcome(frontend.find_space, "payload"),
+                      outcome(frontend.find_space, "gitops"),
                       "failed: the stand_in front end does not offer find_space yet"))
     finally:
         frontend.backend = saved
@@ -840,11 +840,11 @@ def frontend_cases():
     for what, args, want in looking:
         cases.append((f"looking in: {what}", frontend.answering(*args), want))
 
-    listed = ('{"hidden_finished":0,"terminals":[{"address":"t9","agent":"claude-code","cwd":"/ws/payload",'
-              '"name":"payload","state":"live","status":"working","turn":3}]}')
+    listed = ('{"hidden_finished":0,"terminals":[{"address":"t9","agent":"claude-code","cwd":"/ws/gitops",'
+              '"name":"gitops","state":"live","status":"working","turn":3}]}')
     two = '{"hidden_finished":0,"terminals":[{"address":"t9","agent":"claude-code"},{"address":"t12","agent":"claude"}]}'
     none = '{"hidden_finished":0,"terminals":[]}'
-    started = '{"address":"t9","agent":"claude","cwd":"/ws/payload","name":"payload","state":"live","turn":0}'
+    started = '{"address":"t9","agent":"claude","cwd":"/ws/gitops","name":"gitops","state":"live","turn":0}'
     pair = [{"name": "id", "required": True}, {"name": "name", "required": True}]
     commands = json.dumps([
         {"name": "space.rename", "args": pair, "about": ""},
@@ -853,32 +853,32 @@ def frontend_cases():
     ])
     no_focus = json.dumps([c for c in json.loads(commands) if c["name"] != "agent.focus"])
     ok, not_shown = (0, '{"ok": true}'), (1, '{"error": "no such space"}')
-    lookup = "hc ls --label oxc0.space=payload --label oxc0.role=session --json"
+    lookup = "hc ls --label oxc0.space=gitops --label oxc0.role=session --json"
     status, listing = "herdr-app status", "herdr-app commands"
-    start = ("hc run --bg --keep --rm --no-parent --no-notify --json --name payload --cwd /ws/payload "
-             "--label herdr.space=oxc0-payload --label herdr.tab=oxc0-payload "
-             "--label oxc0.space=payload --label oxc0.role=session -- claude -n payload /0xc0:work-issue")
-    space = "herdr-app do space.rename --id oxc0-payload --name payload"
-    tab = "herdr-app do tab.rename --id oxc0-payload --name payload"
+    start = ("hc run --bg --keep --rm --no-parent --no-notify --json --name gitops --cwd /ws/gitops "
+             "--label herdr.space=oxc0-gitops --label herdr.tab=oxc0-gitops "
+             "--label oxc0.space=gitops --label oxc0.role=session -- claude -n gitops /0xc0:work-issue")
+    space = "herdr-app do space.rename --id oxc0-gitops --name gitops"
+    tab = "herdr-app do tab.rename --id oxc0-gitops --name gitops"
     focus = "herdr-app do agent.focus --terminal t9"
-    by_hand = ["-n", "payload", "/0xc0:work-issue"]
+    by_hand = ["-n", "gitops", "/0xc0:work-issue"]
     window = {status: (0, "{}"), listing: (0, commands)}
     no_window = "# the app's window does not answer: nothing to name or focus\n"
-    session = app.Session("t9", "payload")
+    session = app.Session("t9", "gitops")
 
     def plays(what, recorded, action, ran, printed, result):
         cases.append((f"app: {what}", play(app, recorded, action), (ran, printed, result)))
 
     def find():
-        return app.find_session("payload")
+        return app.find_session("gitops")
 
     def open_(*more):
-        return lambda: app.open_session("payload", "/ws/payload", by_hand, *more)
+        return lambda: app.open_session("gitops", "/ws/gitops", by_hand, *more)
 
     plays("a session found", {lookup: (0, listed)}, find, [lookup], "", session)
     plays("no session found", {lookup: (0, none)}, find, [lookup], "", None)
     plays("two sessions found: the first, and it says so", {lookup: (0, two)}, find, [lookup],
-          "payload: 2 sessions carry its labels (t9, t12); taking the first, t9\n", session)
+          "gitops: 2 sessions carry its labels (t9, t12); taking the first, t9\n", session)
     plays("no core to look in", {lookup: (5, '{"error":{"kind":"unavailable","message":"no core running"}}')},
           find, [lookup], "", "failed: hc ls: unavailable: no core running")
     plays("the window answers", window, app.shows, [status], "", True)
@@ -888,7 +888,7 @@ def frontend_cases():
           open_(), [status, listing, start, space, space, space, tab, focus], "", None)
     plays("a session opened without the window still starts, and says so",
           {status: (2, ""), start: (0, started)}, open_(), [status, start],
-          "payload started as t9, and the app's window was not there to name or show it\n", None)
+          "gitops started as t9, and the app's window was not there to name or show it\n", None)
     plays("a dry run with the window prints the commands and runs none of them", window, open_(True),
           [status, listing],
           "\n".join([start, space, tab, "herdr-app do agent.focus --terminal '<new terminal>'"]) + "\n", None)
@@ -896,26 +896,26 @@ def frontend_cases():
           [status], start + "\n" + no_window, None)
     plays("the orchestrator's has no prompt", {status: (2, "")},
           lambda: app.open_session("orchestrator", "/ws", ["-n", "orchestrator"], True), [status],
-          start.replace("payload", "orchestrator").replace("/ws/orchestrator", "/ws")
+          start.replace("gitops", "orchestrator").replace("/ws/orchestrator", "/ws")
           .replace(" /0xc0:work-issue", "") + "\n" + no_window, None)
     plays("a window that never shows the terminal", {**window, start: (0, started), space: not_shown}, open_(),
           [status, listing, start] + [space] * app.ATTEMPTS, "",
-          "failed: payload started as t9, but the window did not show it: no such space")
+          "failed: gitops started as t9, but the window did not show it: no such space")
     plays("a window without a command used here fails before anything starts",
           {status: (0, "{}"), listing: (0, no_focus)}, open_(), [status, listing], "",
           "failed: herdr-app has no command agent.focus with terminal (`herdr-app commands` lists them): "
           "was it changed?")
     plays("a name taken tells how to adopt the session",
-          {status: (2, ""), start: (4, '{"error":{"kind":"name_taken","message":"payload is taken"}}')},
+          {status: (2, ""), start: (4, '{"error":{"kind":"name_taken","message":"gitops is taken"}}')},
           open_(), [status, start], "",
-          "failed: hc run: name_taken: payload is taken: a terminal has this name without the labels "
+          "failed: hc run: name_taken: gitops is taken: a terminal has this name without the labels "
           "of a session; if it is the session, adopt it with "
-          "`hc label <terminal> oxc0.space=payload oxc0.role=session`")
+          "`hc label <terminal> oxc0.space=gitops oxc0.role=session`")
     plays("a session found is focused through the window", {**window, focus: ok},
           lambda: app.focus_session(session), [status, listing, focus], "", None)
     plays("a session found, no window: it says so and focuses nothing", {status: (2, "")},
           lambda: app.focus_session(session), [status],
-          "payload runs as t9, and the app's window is not there to show it\n", None)
+          "gitops runs as t9, and the app's window is not there to show it\n", None)
 
     cases.extend(core_cases(app))
     cases.extend(app_autopilot_cases(app))
@@ -937,20 +937,20 @@ def frontend_cases():
 
 
 def self_test():
-    mention = "The `work-issue: done payload#82` line also waits until then."
+    mention = "The `work-issue: done gitops#82` line also waits until then."
     cases = [
-        ("payload", 82, "work-issue: done payload#82", "done payload#82"),
-        ("payload", 82, "  work-issue: done payload#82  ", "done payload#82"),
-        ("payload", 82, "work-issue: stopped payload#82: checks red", "stopped payload#82: checks red"),
-        ("payload", 82, "\u23fa work-issue: done payload#82", "done payload#82"),
-        ("payload", 82, "\u23fa work-issue: stopped payload#82: no access", "stopped payload#82: no access"),
-        ("payload", 82, mention, None),
-        ("payload", 82, "work-issue: done payload#82 and more", None),
-        ("payload", 82, "work-issue: stopped payload#82:", None),
-        ("payload", 8, "work-issue: done payload#82", None),
-        ("payload", 82, "work-issue: done payload#8", None),
-        ("payload", 82, "work-issue: done other#82", None),
-        ("payload", 82, f"work-issue: done payload#82\n{mention}\n> prompt", "done payload#82"),
+        ("gitops", 82, "work-issue: done gitops#82", "done gitops#82"),
+        ("gitops", 82, "  work-issue: done gitops#82  ", "done gitops#82"),
+        ("gitops", 82, "work-issue: stopped gitops#82: checks red", "stopped gitops#82: checks red"),
+        ("gitops", 82, "\u23fa work-issue: done gitops#82", "done gitops#82"),
+        ("gitops", 82, "\u23fa work-issue: stopped gitops#82: no access", "stopped gitops#82: no access"),
+        ("gitops", 82, mention, None),
+        ("gitops", 82, "work-issue: done gitops#82 and more", None),
+        ("gitops", 82, "work-issue: stopped gitops#82:", None),
+        ("gitops", 8, "work-issue: done gitops#82", None),
+        ("gitops", 82, "work-issue: done gitops#8", None),
+        ("gitops", 82, "work-issue: done other#82", None),
+        ("gitops", 82, f"work-issue: done gitops#82\n{mention}\n> prompt", "done gitops#82"),
     ]
     failed = [c for c in cases if find_last_line(c[0], c[1], c[2]) != c[3]]
     for repo, n, screen, want in failed:
