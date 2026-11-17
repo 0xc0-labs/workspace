@@ -249,15 +249,16 @@ convention, the same on every list endpoint, and where `agent-skills` is
 enabled, its convention is the one in use.
 
 **The pin** (operator decision, 2026-11-17; workspace#214). The org
-marketplace, `claude-config`'s `.claude-plugin/marketplace.json`, serves the
-plugin at a tag and its commit (`ref` and `sha`). Addy's own marketplace is
-not used: pinning it pins only its catalogue, and its entry installs the
-plugin's default branch. So third-party instructions reach a session only at
-a commit the org chose. A repo only enables `agent-skills@0xc0-labs`: moving
-the pin is one PR in `claude-config`, not a `.claude/` commit in each repo,
-and it reaches every repo through the `autoUpdate` of `0xc0-labs`. A new
-application repo starts with `agent-skills@0xc0-labs` enabled, the five
-skills denied, and the `spec-first` caller.
+marketplace, `claude-config`'s `.claude-plugin/marketplace.json`, serves
+`agent-skills` at a tag and its commit (`ref` and `sha`). Addy's own
+marketplace is not used: pinning it pins only its catalogue, and its entry
+installs the plugin's default branch. So third-party instructions reach a
+session only at a commit the org chose. A repo only enables
+`agent-skills@0xc0-labs`: moving the pin is one PR in `claude-config`, not a
+`.claude/` commit in each repo, and it reaches every repo through the
+`autoUpdate` of `0xc0-labs`. A new application repo starts with
+`agent-skills@0xc0-labs` enabled, the five skills denied, and the
+`spec-first` caller.
 
 **`payload` keeps gentle-ai until it is retired** (workspace#204). There it
 is added at workspace scope and leads the work as before: its own workflow
