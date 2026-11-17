@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Opens the Claude Code session of one directory of the workspace in its own
-Herdr workspace, listed in the sidebar under the session's name, or focuses
-it when it is already open.
+space of Herdr, listed under the session's name, or focuses it when it is
+already open in any front end that answers.
 
   the workspace itself   claude -n orchestrator
   a repo                 claude -n <name> "/0xc0:work-issue"
@@ -11,7 +11,11 @@ dashes, a leading dot dropped. `.github` is `github`, `offby1.cc`
 `offby1-cc`. The same name goes to Herdr and to `claude -n`, so the
 orchestrator finds a session by it.
 
-Usage: open-session <dir> [--dry-run]
+The front end is the one asked for, with --frontend or OXC0_HERDR_FRONTEND;
+else the one this runs in; else the app if its window answers, and the TUI if
+not (README.md, Opening a session by hand).
+
+Usage: open-session <dir> [--dry-run] [--frontend tui|app]
 """
 import os
 import re
@@ -20,11 +24,29 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 LIB = ROOT / "herdr" / "lib"
-USAGE = "usage: open-session <dir> [--dry-run]"
+USAGE = "usage: open-session <dir> [--dry-run] [--frontend tui|app]"
 
 sys.dont_write_bytecode = True  # importing the layer would leave a __pycache__ in the checkout
 sys.path.insert(0, str(LIB))
 import frontend  # noqa: E402
+
+
+def options(argv):
+    """(dry, front end asked for) from what follows the directory."""
+    dry, asked, rest = False, None, list(argv)
+    while rest:
+        arg = rest.pop(0)
+        if arg == "--dry-run":
+            dry = True
+        elif arg.startswith("--frontend="):
+            asked = arg.partition("=")[2]
+        elif arg == "--frontend" and rest:
+            asked = rest.pop(0)
+        else:
+            sys.exit(USAGE)
+    if asked == "":
+        sys.exit(USAGE)
+    return dry, asked
 
 
 def main(argv):
@@ -33,7 +55,7 @@ def main(argv):
     directory = Path(os.path.normpath(Path.cwd() / argv[0]))
     if not directory.is_dir():
         sys.exit(f"open-session: {argv[0]}: not a directory")
-    dry = argv[1:2] == ["--dry-run"]
+    dry, asked = options(argv[1:])
 
     if directory.resolve() == ROOT:
         name = "orchestrator"
@@ -45,11 +67,16 @@ def main(argv):
         sys.exit(f"open-session: '{name}' is not a name Herdr takes")
 
     try:
-        session = None if dry else frontend.find_session(name)
-        if session:
-            frontend.focus_session(session)
-        else:
-            frontend.open_session(name, directory, args, dry)
+        picked = frontend.choose(asked)
+        if not dry:
+            for where in frontend.answering(picked):
+                frontend.use(where)
+                session = frontend.find_session(name)
+                if session:
+                    frontend.focus_session(session)
+                    return
+        frontend.use(picked)
+        frontend.open_session(name, directory, args, dry)
     except (frontend.Failed, OSError) as e:
         sys.exit(f"open-session: {e}")
 

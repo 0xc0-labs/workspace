@@ -4,6 +4,7 @@ import json
 import os
 import re
 import shlex
+import shutil
 import subprocess
 from dataclasses import dataclass
 
@@ -56,6 +57,23 @@ def act(*args, quiet=False):
 
 def show(command):
     print(shlex.join(command) + " ")
+
+
+def missing():
+    return [] if shutil.which(HERDR) else [HERDR]
+
+
+def answers():
+    # `herdr status` is the command made to report the server, running or not.
+    p = subprocess.run([HERDR, "status", "server", "--json"], capture_output=True, text=True)
+    try:
+        return p.returncode == 0 and json.loads(p.stdout).get("running") is True
+    except ValueError:
+        return False
+
+
+def shows():
+    return answers()
 
 
 def find_session(name):
