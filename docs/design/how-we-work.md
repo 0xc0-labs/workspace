@@ -146,16 +146,16 @@ decision, 2026-10-10). The harness is `agent-skills` in `packages` and
 `payload` keeps gentle-ai until it is retired (workspace#204); `offby1.cc`
 carries neither (operator decision, 2026-11-17; workspace#214). Everything
 outside an issue stays the org's, whatever the harness: the board, the
-autopilot, and `/0xc0:work-issue` as the interface and the frame. It is the
-interface between that repo and the orchestrator: it starts from `main`,
-claims the issue on the board and takes it as the contract, opens the draft
-PR by the org's rules, reports back, and keeps its list of what a session
-never does (operator decision, 2026-10-11; workspace#68). Where a harness's
-instructions and the org's differ, the org's win. The `0xc0` plugin carries
-no agents (operator decision, 2026-10-11; workspace#78): each repo's session
-builds and checks its own changes, and what a reviewer checked lives in that
-repo's docs (`infrastructure`'s `docs/zones.md`, Invariants; `gitops`'
-`CLAUDE.md`, Before opening a PR).
+autopilot, and `/0xc0:work-issue`. That skill is the interface between a
+repo and the orchestrator, and the frame around the harness: it starts from
+`main`, claims the issue on the board and takes it as the contract, opens
+the draft PR by the org's rules, reports back, and keeps its list of what a
+session never does (operator decision, 2026-10-11; workspace#68). Where a
+harness's instructions and the org's differ, the org's win. The `0xc0`
+plugin carries no agents (operator decision, 2026-10-11; workspace#78): each
+repo's session builds and checks its own changes, and what a reviewer
+checked lives in that repo's docs (`infrastructure`'s `docs/zones.md`,
+Invariants; `gitops`' `CLAUDE.md`, Before opening a PR).
 
 **`agent-skills` leads the work inside an issue** (operator decision,
 2026-11-17; workspace#214). It is Addy Osmani's Claude Code plugin,
