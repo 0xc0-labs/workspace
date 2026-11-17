@@ -17,8 +17,7 @@ ArgoCD points at `gitops/bootstrap/prod/`, which deploys `platform/` and
 How an application's code goes from a commit to staging and prod, and how a
 frontend and the backend it reads stay in step (operator decisions,
 2026-10-10 and 2026-10-11; workspace#68). It applies to `artistlabco.com`,
-which has a staging environment, and to `offby1.cc`, which has none (below);
-and to `payload`, which has one, until it is retired.
+which has a staging environment, and to `offby1.cc`, which has none (below).
 
 **Trunk-based, versioned from Conventional Commits.** `main` is the trunk:
 short-lived branches, squash merges, no release branches. Every merge to
@@ -161,14 +160,22 @@ session's is, dots to dashes (operator decision, 2026-10-13;
 workspace#171). Mautic is the first: `apps/mautic/artistlabco-com/`, in
 `mautic-artistlabco-com`.
 
-**Migrations run before the new version, from the same image.** An Argo CD
-Sync hook in wave 1, before the Deployment in wave 2, runs `payload migrate`
-with the digest being deployed: when it fails, the sync stops there and the
-running version keeps serving. Not a PreSync hook: on an application's first
-sync it runs before its namespace and secrets exist, and never finishes
-(gitops#142). Every
-migration is expand and contract, so the previous version works on the new
-schema and rolling back the image is safe.
+**A site's Strapi syncs its own schema when it starts, and its rollout keeps
+the running version serving.** Strapi applies its content-type schema to the
+database at start, so nothing migrates it beforehand: the CMS is one
+replica, rolled out with a surge of one and none unavailable, so only the new
+pod starts and syncs, and the old one keeps serving until the new one is
+ready, and keeps serving if it never is. A release that removes or renames a
+field changes the table while the old pod still serves
+([`gitops`' README](https://github.com/0xc0-labs/gitops/blob/main/apps/artistlabco-com/README.md#the-cms)).
+An application that needs a migration step of its own runs it before the new
+version, from the same image: an Argo CD Sync hook in wave 1, before the
+Deployment in wave 2, with the digest being deployed. When it fails, the sync
+stops there and the running version keeps serving. Not a PreSync hook: on an
+application's first sync it runs before its namespace and secrets exist, and
+never finishes (gitops#142). Every such migration is expand and contract, so
+the previous version works on the new schema and rolling back the image is
+safe.
 
 **The frontends render on the server, each as a BFF.** A frontend is a
 Next.js application in the cluster and a backend for frontend: its own
@@ -191,8 +198,7 @@ and nothing that differs between environments is baked into the image (no
 the uploaded files are public, from R2 (workspace#88), and the admin,
 behind Cloudflare Access ([platform](platform.md)); the API and
 authentication stay inside. A public CMS API stays
-[discarded](../discarded.md). Payload's fronts call it through their
-servers the same way while it runs.
+[discarded](../discarded.md).
 
 **Observable as every application is, in both environments.** The rule in
 [platform](platform.md)
@@ -222,18 +228,22 @@ needs one. Images of public repos stay public, as today.
 **A backend in a repo of its own publishes a versioned contract.** A
 site's Strapi does not: it ships with its front, in the same repo, version
 and promote PR (above), so the two have no contract between them and no
-order to enforce. `payload`, in a repo of its own, does, until it is retired:
-it publishes its generated types as `@0xc0-labs/payload-types`, a private
-npm package in GitHub Packages, with the version of the rc or release that
-built it: an rc publishes `X.Y.Z-rc.N` under the `rc` dist-tag, a release
-`X.Y.Z`. A frontend pins it in its `package.json`, so a breaking change in
-the backend fails the frontend's build, never its users. The backend changes
-by expand and contract: it adds (a minor) and deploys, the frontends adopt,
-and it removes (a breaking release) only once no deployed frontend uses what
-goes. `@0xc0-labs/payload-types` and `@0xc0-labs/payload-client` are retired
-with Payload (operator decision, 2026-10-20; workspace#203).
+order to enforce. A backend in a repo of its own does: it publishes its
+generated types as a private npm package in GitHub Packages, with the
+version of the rc or release that built it: an rc publishes `X.Y.Z-rc.N`
+under the `rc` dist-tag, a release `X.Y.Z`. A frontend pins it in its
+`package.json`, so a breaking change in the backend fails the frontend's
+build, never its users. The backend changes by expand and contract: it adds
+(a minor) and deploys, the frontends adopt, and it removes (a breaking
+release) only once no deployed frontend uses what goes.
+`@0xc0-labs/payload-types` and `@0xc0-labs/payload-client` are retired
+with Payload (operator decision, 2026-10-20; workspace#203). No repo is such
+a backend today: what published the contract left the release workflows with
+Payload (0xc0-labs/.github#189), and the first backend in a repo of its own
+brings the publishing and the order checks back.
 
-**CI enforces the order between a frontend and a backend of another repo:**
+**CI must enforce the order between a frontend and a backend of another
+repo:**
 
 1. A frontend release cannot depend on a prerelease of the contract, so the
    backend always reaches prod first.

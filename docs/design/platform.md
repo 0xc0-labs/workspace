@@ -109,7 +109,7 @@ full standard is in the `vault` repo's README.
 decision, 2026-09-30; .github#6): auth methods and roles, policies, secret
 engines. It is downstream of `gitops`, which deploys Vault, so the order stays
 linear: `.github → infrastructure → gitops → vault →` the applications
-(`offby1.cc`, `artistlabco.com`, and `payload` until it is retired).
+(`offby1.cc` and `artistlabco.com`).
 Its CI logs in with the job's GitHub OIDC token (JWT auth,
 `hashicorp/vault-action`): no Vault credential is stored. A PR plans
 read-only from any ref (role `terraform-plan`); only `main`, inside the
@@ -218,11 +218,10 @@ admin. It replaces the one multi-tenant Payload instance (operator decision,
 2026-10-09; workspace#64), the backend of several fronts through Payload's
 multi-tenant plugin: a client who buys a site cannot manage Payload's admin,
 and Strapi's is friendlier and can be branded. The multi-tenant Payload is
-[discarded](../discarded.md). `artistlabco.com`'s is the first Strapi, due
-before ARTIST LAB's launch on 1 November; Payload keeps running until
-workspace#204 retires it, once that Strapi runs in prod. A site's front calls
-its Strapi inside the cluster, as its BFF ([delivery](delivery.md)), with an
-API token: Strapi's public role grants nothing, and the API is never public.
+[discarded](../discarded.md). `artistlabco.com`'s is the first Strapi
+(0xc0-labs/workspace#202). A site's front calls its Strapi inside the
+cluster, as its BFF ([delivery](delivery.md)), with an API token: Strapi's
+public role grants nothing, and the API is never public.
 Only the uploaded files are public, from R2, and the admin: the public
 hostname serves the admin alone, at `cms.<site domain>` in prod and
 `cms-staging.<site domain>` in staging, behind a Cloudflare Access
@@ -312,8 +311,7 @@ platform still never sends as a site (email, above).
 **A site's storage is its own, in any S3-compatible provider**: one bucket
 for its media and one for its resources, each per environment. Media may
 have a public URL, and without one Strapi serves the files. Its buckets are
-R2's, named by the rule above and created by `infrastructure`: new ones, not
-the ones Payload used.
+R2's, named by the rule above and created by `infrastructure`.
 
 **Strapi's egress is HTTPS on 443 to the public internet**, except private,
 reserved and cluster ranges (operator decision, 2026-10-17; workspace#187,

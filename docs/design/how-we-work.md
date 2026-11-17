@@ -60,7 +60,7 @@ works as above.
 
 - **One session per issue.** The autopilot starts
   `claude -n <name>-<n> -w <name>-<n> "/0xc0:work-issue <repo>#<n>"`
-  (`payload-19`, `github-61`). Given an issue, `work-issue` works that one and
+  (`gitops-19`, `github-61`). Given an issue, `work-issue` works that one and
   ends, its last line `work-issue: done <repo>#<n>`, or `stopped` with the
   reason.
 - **Unattended, up to a draft PR.** It runs in auto mode

@@ -164,7 +164,7 @@ in every other that answers (the TUI's server, the app's core) before acting,
 and never start a server that is not running to ask: no `hc` command is run
 for a front end that was not picked until its core's socket accepted a
 connection. A pilot found in another front end than the one picked is
-reported there, `payload: autopilot already on (in the app)`, or turned off
+reported there, `gitops: autopilot already on (in the app)`, or turned off
 there by `toggle`, and `start` starts none while one is on anywhere. A dead
 one in any front end is closed, and `start` starts a new one in the front end
 picked. With only the TUI in use nothing changes: the same calls to `herdr`,
@@ -433,7 +433,7 @@ session by it.
 | `.github` | `github` | `github-61` |
 | `offby1.cc` | `offby1-cc` | `offby1-cc-27` |
 | `artistlabco.com` | `artistlabco-com` | `artistlabco-com-5` |
-| any other repo | its name | `payload-19` |
+| any other repo | its name | `gitops-19` |
 
 ## File viewer
 

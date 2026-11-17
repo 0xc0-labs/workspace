@@ -19,13 +19,12 @@ it too.
 | `vault/`         | `vault`           | OpenTofu configuration of the cluster's Vault   |
 | `packages/`      | `packages`        | shared code as versioned npm packages (`@0xc0-labs/<name>`) |
 | `offby1.cc/`     | `offby1.cc`       | Next.js landing page for offby1.cc              |
-| `payload/`       | `payload`         | Payload CMS, being retired (0xc0-labs/workspace#204) |
 | `artistlabco.com/` | `artistlabco.com` | the artist's site and its Strapi, in `cms/`   |
 | `app-*/`         | various           | applications                                    |
 
 Dependency order: `.github` → `infrastructure` → `gitops` → `vault` →
-`packages` → the applications (`offby1.cc`, `artistlabco.com`, `app-*`, and
-`payload` until it is retired), which pin its packages.
+`packages` → the applications (`offby1.cc`, `artistlabco.com`, `app-*`), which
+pin its packages.
 `claude-config` stands apart: nothing depends on it at deploy time.
 A downstream change is not merged until the upstream one is applied.
 
@@ -65,7 +64,7 @@ A downstream change is not merged until the upstream one is applied.
   or focuses a repo's session, or the orchestrator, from one key.
 - **The autopilot** (`herdr/README.md`), started by the orchestrator, or by
   the operator from another key: it starts one session per Ready issue,
-  named `<name>-<n>` (`payload-19`), each in its own worktree under
+  named `<name>-<n>` (`gitops-19`), each in its own worktree under
   `.worktrees/`, which works that issue and ends, and turns itself off when
   nothing is left. The operator pauses a repo from the key; an issue to leave
   alone is Blocked.
@@ -360,9 +359,9 @@ What runs today:
   Operator. Rotation is the operator's, by hand in Vault (.github#6).
 - **OpenObserve** for logs, metrics and traces, fed by the OpenTelemetry
   Operator's collectors.
-- **The applications**: the `offby1.cc` landing page, Mautic and Payload
-  CMS, from `gitops/apps/`; each site's own Strapi, in `cms/` of its repo
-  (`artistlabco.com`'s first), is replacing Payload (0xc0-labs/workspace#202,
-  #204). Every application repo carries the `app` topic.
+- **The applications**: the `offby1.cc` landing page and Mautic, from
+  `gitops/apps/`; each site's own Strapi, in `cms/` of its repo
+  (`artistlabco.com`'s first; 0xc0-labs/workspace#202). Every application repo
+  carries the `app` topic.
 
 Every VM carries `prevent_destroy`.
