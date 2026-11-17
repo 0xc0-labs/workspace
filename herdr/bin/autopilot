@@ -62,9 +62,7 @@ NEW_PROJECT = {"allowedTools": [], "mcpContextUris": [], "mcpServers": {},
                "hasClaudeMdExternalIncludesWarningShown": False}
 CONFIG_LOCK_STALE = 10
 SCRIPT = Path(__file__).resolve()
-CODE = (SCRIPT, *sorted((LIB / "frontend").glob("*.py")))
-# What the loop reads from herdr/: a change to any of it is picked up between rounds.
-WATCHED = (*CODE, CONF)
+FRONTEND = LIB / "frontend"
 LAUNCHED_ENV = "OXC0_AUTOPILOT_LAUNCHED"
 KEPT_REPEAT = 600
 
@@ -561,15 +559,29 @@ def marketplace_fresh():
         return False
 
 
+def code():
+    """The script and the layer's files, listed afresh each time: a file added
+    to lib/frontend/ is code from then on. The package's `__init__.py` is
+    listed even when it is gone, so that code without it is not run."""
+    return [SCRIPT, *sorted({FRONTEND / "__init__.py", *FRONTEND.glob("*.py")})]
+
+
+def watched():
+    """What the loop reads from herdr/: a change to any of it, a file added or
+    removed included, is picked up between rounds."""
+    return [*code(), CONF]
+
+
 def fingerprint():
-    """The size and mtime of each watched file; a missing one reads as None."""
+    """The size and mtime of each watched file, by path; a missing one reads as
+    None."""
     def stamp(path):
         try:
             st = path.stat()
             return st.st_mtime_ns, st.st_size
         except OSError:
             return None
-    return [stamp(p) for p in WATCHED]
+    return {p: stamp(p) for p in watched()}
 
 
 def restart_if_changed(seen, launched):
@@ -582,7 +594,7 @@ def restart_if_changed(seen, launched):
     if now == seen:
         return seen
     try:
-        for path in CODE:
+        for path in code():
             compile(path.read_text(), str(path), "exec")
     except (OSError, SyntaxError, ValueError) as e:
         log(f"autopilot code changed but cannot be loaded, keeping the running one: {e}")

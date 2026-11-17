@@ -111,7 +111,8 @@ one whose session stopped on a block nobody touched is not (#164). A round that 
 does not count.
 
 Between rounds, it compares `bin/autopilot`, `autopilot.conf` and the files of
-`lib/frontend/` with what it loaded at start. When one changed, it logs
+`lib/frontend/`, listed again each time so that a file added there counts as a
+change, with what it loaded at start. When one changed, it logs
 `autopilot code changed; restarting` and re-executes itself (`os.execv`) with
 the same arguments, in the same tab: the issues it already started are
 carried over, `prepare` is not repeated, and a round in progress is never cut.
