@@ -216,6 +216,13 @@ org's hooks. From Anthropic's marketplace, only what applies (workspace#72):
 `.claude/settings.json` where it leads the work inside an issue:
 `packages`, `artistlabco.com` and every new application repo (workspace#214).
 
+`software-architecture` is the org's own, from the same marketplace:
+hexagonal architecture, domain-driven design and REST API design, for a
+session that designs or reviews application code. `packages` and every
+application repo enable `software-architecture@0xc0-labs` (workspace#218).
+Its skills name no framework or product, so a rule that holds for one
+framework alone goes in the repo that uses it, in its `CLAUDE.md` or `docs/`.
+
 On a machine, Claude Code loads a repo's enabled plugins only once they are
 installed for its path, and a worktree uses its repo's record:
 `herdr/bin/autopilot prepare`, which `bootstrap.sh` and every autopilot run,
@@ -231,8 +238,8 @@ feature document is committed in the same PR as its feature, never kept out
 of git (workspace#98): `spec/<feature>.md` with `agent-skills` (spec, plan
 and tasks in that one file: no `SPEC.md`, no `tasks/`),
 `odd/tasks/<feature>.md` with gentle-ai in `payload`. Where a harness's
-instructions and the org's differ, the org's win: this file and
-`docs/design/`.
+instructions and the org's differ, the org's win: this file, `docs/design/`
+and the skills of the org's own plugins (`0xc0`, `software-architecture`).
 
 Plugins keep themselves current (workspace#80):
 

@@ -151,11 +151,13 @@ repo and the orchestrator, and the frame around the harness: it starts from
 `main`, claims the issue on the board and takes it as the contract, opens
 the draft PR by the org's rules, reports back, and keeps its list of what a
 session never does (operator decision, 2026-10-11; workspace#68). Where a
-harness's instructions and the org's differ, the org's win. The `0xc0`
-plugin carries no agents (operator decision, 2026-10-11; workspace#78): each
-repo's session builds and checks its own changes, and what a reviewer
-checked lives in that repo's docs (`infrastructure`'s `docs/zones.md`,
-Invariants; `gitops`' `CLAUDE.md`, Before opening a PR).
+harness's instructions and the org's differ, the org's win, and the org's
+include the skills of its own plugins, `0xc0` and `software-architecture`
+(operator decision, 2026-11-17; workspace#218). The `0xc0` plugin carries no
+agents (operator decision, 2026-10-11; workspace#78): each repo's session
+builds and checks its own changes, and what a reviewer checked lives in
+that repo's docs (`infrastructure`'s `docs/zones.md`, Invariants;
+`gitops`' `CLAUDE.md`, Before opening a PR).
 
 **`agent-skills` leads the work inside an issue** (operator decision,
 2026-11-17; workspace#214). It is Addy Osmani's Claude Code plugin,
@@ -224,16 +226,39 @@ rules, and each repo that carries it denies them in its
 | `documentation-and-adrs` | decisions live in the workspace's `docs/design` |
 | `shipping-and-launch` | release and promotion: [delivery](delivery.md), and the operator |
 
+**`software-architecture` is the org's own, and its skills name no product**
+(operator decision, 2026-11-17; workspace#218). The plugin lives in
+`claude-config` beside `0xc0`: three skills, `hexagonal-architecture`,
+`domain-driven-design` and `rest-api-design`, which a session loads when it
+designs or reviews application code. `packages` and every application repo
+enable `software-architecture@0xc0-labs`, and a new application repo starts
+with it: `packages` is no application, but what it publishes is application
+code. The infrastructure repos do not load it. The skills name no
+framework, CMS, SDK or vendor: they named Payload and Next.js about 140
+times, and the move to a Strapi per site would have rewritten them, so they
+serve any code, a site or a package, whatever the stack. A rule that holds
+for one framework alone lives in the repo that uses it, in its `CLAUDE.md`
+or `docs/`. Where one of its skills and a harness's differ, the org's skill
+wins. The one case today is the error body of an endpoint the org writes:
+`application/problem+json` (RFC 9457), where
+`agent-skills:api-and-interface-design` shows `{ error: { code, message } }`,
+because RFC 9457 is the standard. `rest-api-design` sets no pagination or
+sorting convention: no RFC decides either, and one of its own would have been
+a second answer beside the one `agent-skills` gives. It asks only for one
+convention, the same on every list endpoint, and where `agent-skills` is
+enabled, its convention is the one in use.
+
 **The pin** (operator decision, 2026-11-17; workspace#214). The org
-marketplace, `claude-config`'s `.claude-plugin/marketplace.json`, serves the
-plugin at a tag and its commit (`ref` and `sha`). Addy's own marketplace is
-not used: pinning it pins only its catalogue, and its entry installs the
-plugin's default branch. So third-party instructions reach a session only at
-a commit the org chose. A repo only enables `agent-skills@0xc0-labs`: moving
-the pin is one PR in `claude-config`, not a `.claude/` commit in each repo,
-and it reaches every repo through the `autoUpdate` of `0xc0-labs`. A new
-application repo starts with `agent-skills@0xc0-labs` enabled, the five
-skills denied, and the `spec-first` caller.
+marketplace, `claude-config`'s `.claude-plugin/marketplace.json`, serves
+`agent-skills` at a tag and its commit (`ref` and `sha`). Addy's own
+marketplace is not used: pinning it pins only its catalogue, and its entry
+installs the plugin's default branch. So third-party instructions reach a
+session only at a commit the org chose. A repo only enables
+`agent-skills@0xc0-labs`: moving the pin is one PR in `claude-config`, not a
+`.claude/` commit in each repo, and it reaches every repo through the
+`autoUpdate` of `0xc0-labs`. A new application repo starts with
+`agent-skills@0xc0-labs` enabled, the five skills denied, and the
+`spec-first` caller.
 
 **`payload` keeps gentle-ai until it is retired** (workspace#204). There it
 is added at workspace scope and leads the work as before: its own workflow
