@@ -10,6 +10,10 @@ import { exec, appHome, checking, theme, props, closeOverlay } from "herdr";
 
 const NAME = "0xc0-workspace";
 const TOGGLE = "t";
+// A popup of the app takes its height from its content ("height" in mod.json
+// only caps it), so the list sets its own: its rows, up to LIST_MAX.
+const ROW = 34;
+const LIST_MAX = 11 * ROW;
 const ASK_APP = ["--frontend", "app"];
 const STATE_COLOR = { on: "ansi2", dead: "ansi1" };
 
@@ -152,7 +156,7 @@ export default class Workspace extends View {
       return h_flex()
         .id(`ws-${i}`)
         .flex_none()
-        .h(34)
+        .h(ROW)
         .px(10)
         .gap(10)
         .items_center()
@@ -174,7 +178,7 @@ export default class Workspace extends View {
       .id("workspace-picker")
       .track_focus(this.handle)
       .on_key_down((e, cx) => this.key(e, cx))
-      .size_full()
+      .w_full()
       .min_h(0)
       .p(18)
       .gap(10)
@@ -193,13 +197,13 @@ export default class Workspace extends View {
       .child(
         v_flex()
           .id("ws-list")
-          .flex_1()
-          .min_h(0)
+          .flex_none()
+          .h(Math.min(LIST_MAX, Math.max(1, rows.length) * ROW))
           .overflow_y_scrollbar()
           .track_scroll(this.scroll)
           .children(rows.map(row))
-          .when(this.entries === null && !this.failed, (el) => el.child(div().p(10).text_color(t.muted).child("…")))
-          .when(this.entries !== null && rows.length === 0, (el) => el.child(div().p(10).text_color(t.dim).child("No matching repo."))),
+          .when(this.entries === null && !this.failed, (el) => el.child(h_flex().flex_none().h(ROW).px(10).items_center().text_color(t.muted).child("…")))
+          .when(this.entries !== null && rows.length === 0, (el) => el.child(h_flex().flex_none().h(ROW).px(10).items_center().text_color(t.dim).child("No matching repo."))),
       )
       .when(Boolean(status), (el) =>
         el.child(
