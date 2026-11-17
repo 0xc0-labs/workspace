@@ -422,7 +422,9 @@ bind.
 
 It lists the workspace and every repo cloned in it, filtered by name as you
 type, and fills in each repo's autopilot, `on`, `off` or `dead`, once the list
-shows:
+shows. A popup of the app takes its height from its content (`"height"` in
+`mod.json` only caps it), so the list sets its own: that of its rows, up to
+eleven of them, and it scrolls beyond that. The keys:
 
 | Key | What it runs | Then |
 |---|---|---|
@@ -497,12 +499,18 @@ What the app keeps of the mod, once it has seen it:
 
 `herdr-app check herdr/mods/0xc0-workspace` loads the mod and renders it once.
 The mod starts nothing during a check (`checking()`): its scripts run only in a
-live window. `herdr-app status` lists the mod under `overlays` once it is
-opened, with its `errors`, empty when it is fine.
+live window. A check does not lay a mod out either, so a change to how the
+popup looks is looked at in the live window with `herdr-app shot <file.png>`,
+which saves the app's window frame as a PNG without anyone at the screen.
+`herdr-app status` lists the mod under `overlays` once it is opened, with its
+`errors`, empty when it is fine.
 
 Checked on 2026-11-17 with `herdr-app` 0.1.16 and `hc` 0.1.21, with throwaway
 mods in the live window: a linked mod loads, a name that starts with a digit
-works, and each open reads the files as they are then. The app and its core are
+works, and each open reads the files as they are then. The popup itself was
+seen that way too, from a scratch copy of the mod linked under another name: the
+list with each autopilot's state, the list scrolled to an entry below the fold,
+and the line shown when the filter matches nothing. The app and its core are
 0.1.x and update themselves, so an update can break what this relies on, with
 no change here:
 
