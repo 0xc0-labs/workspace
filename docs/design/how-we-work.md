@@ -23,12 +23,33 @@ leading dot dropped (`github`, `offby1-cc`, `artistlabco-com`). The same name
 goes to Herdr and to `claude -n`, and it is how the orchestrator addresses a
 session. The operator works in Herdr: the workspace's own Herdr plugin
 (`herdr/`, workspace#76) opens or focuses any repo's session, or the
-orchestrator, from one key.
+orchestrator, from one key, in Herdr's terminal app or in its desktop app.
 
 They talk through Claude Code's messages between local sessions. When a
 repo's session is not open, the orchestrator starts the repo's autopilot
 (below), which opens one session per Ready issue; it opens no other session
 on its own.
+
+**Herdr is two products, and the integration serves both through one layer
+with two backends** (operator decision, 2026-11-17; workspace#226, #232). The
+terminal app (`herdr`, the TUI) and the desktop app (`herdr-app`) share no base:
+the TUI has its own server, the app is a client of `herdr-core` (`hc`), a
+terminal runtime that draws nothing and whose one published API promises only
+to grow, and what runs in one does not show up in the other. Upgrading the TUI
+brings no shared base, so as long as both are used the integration has to speak
+to each. It is the layer `herdr/lib/frontend/`: `open-session` and `autopilot`
+ask it for spaces, tabs and sessions, and its backend, `tui` or `app`,
+translates; `pick` and the app's mod only run those two scripts. The desktop
+app comes first where the work has to choose, and the `tui` backend stays as it
+was, the way back while the app and its core, 0.1.x and self-updating, can
+change under us. The app's backend talks to the core first: `hc` carries everything that is a session (creating, finding, reading,
+knowing it ended), found by labels of ours; the window, `herdr-app`, is only
+for focusing, naming and showing the picker, so an autopilot does not depend on
+an open window. A repo never has two sessions or two autopilots: before it
+creates one, a script looks in every front end that answers. The picker is one
+mod in the app, one popup with both keys, where the TUI has two popups; the key
+that opens it is the operator's, in their own `keys.json`. How it is done:
+`herdr/README.md`.
 
 **Repo sessions take their own work from the board.** One board for every
 repo, `artistlabco.com` included (`CLAUDE.md`, Tracking, has how an issue is

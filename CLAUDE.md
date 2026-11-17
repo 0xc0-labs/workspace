@@ -60,8 +60,9 @@ A downstream change is not merged until the upstream one is applied.
   dots to dashes, a leading dot dropped (`github`, `offby1-cc`,
   `artistlabco-com`); the workspace's is `orchestrator`. The orchestrator
   addresses a session by that name.
-- **Opening one**: in Herdr, the workspace's plugin (`herdr/README.md`) opens
-  or focuses a repo's session, or the orchestrator, from one key.
+- **Opening one**: in Herdr, in its terminal app or its desktop app, the
+  workspace's plugin or mod (`herdr/README.md`) opens or focuses a repo's
+  session, or the orchestrator, from one key.
 - **The autopilot** (`herdr/README.md`), started by the orchestrator, or by
   the operator from another key: it starts one session per Ready issue,
   named `<name>-<n>` (`gitops-19`), each in its own worktree under

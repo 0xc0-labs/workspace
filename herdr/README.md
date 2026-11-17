@@ -1,14 +1,16 @@
 # herdr
 
-The workspace's [Herdr](https://herdr.dev) plugin, `0xc0-workspace`. One key
-opens a repo's Claude Code session in its own Herdr workspace, or the
+The workspace's [Herdr](https://herdr.dev) integration: a plugin for its
+terminal app and a mod for its desktop app, both called `0xc0-workspace`. One
+key opens a repo's Claude Code session in its own Herdr workspace, or the
 orchestrator. Another turns a repo's autopilot on or off: the autopilot
 works the repo's Ready issues, one fresh session per issue, each in its own
 tab and worktree, and turns itself off when nothing is left
 (`docs/design/how-we-work.md`). The orchestrator starts it with
 `bin/autopilot start <repo>` after it sets issues Ready. Both run in Herdr's
 terminal app (the TUI) or in its desktop app, whichever is in use (Which front
-end, below).
+end, below). In the TUI the keys are two plugin actions, each opening a
+popup; in the app they are one popup with both (The picker in the app, below).
 
 Herdr also runs one third-party plugin the workspace installs, the file
 viewer (File viewer, below).
@@ -409,6 +411,120 @@ Opening a session types into no terminal and reads no screen: no `hc send`,
 autopilot reads a session's screen only as The autopilot in the app, above,
 says.
 
+## The picker in the app
+
+The desktop app has no plugins like the TUI's: it loads mods, a folder with a
+`main.js` and a `mod.json`, and a mod is trusted code with no isolation, as the
+TUI's plugin linked from this repo already is. `mods/0xc0-workspace/` is ours.
+In the TUI a popup is a script that reads a number, so the two keys are two
+popups. In the app it is one popup with a list and two actions, and one key to
+bind.
+
+It lists the workspace and every repo cloned in it, filtered by name as you
+type, and fills in each repo's autopilot, `on`, `off` or `dead`, once the list
+shows:
+
+| Key | What it runs | Then |
+|---|---|---|
+| Enter, or a click | `bin/open-session <dir> --frontend app` for the entry marked | the popup closes; if the script fails, it stays and shows what it printed |
+| Ctrl+T | `bin/autopilot toggle <dir> --frontend app`, then `bin/autopilot state <dir> --frontend app` | the line the toggle printed, and the entry's new state |
+| ↑ and ↓ | | mark another entry |
+| Esc | | closes the popup |
+
+The mod has no logic about sessions or pilots of its own, and no path written
+by hand. It runs `bin/pick --list` for the list, `bin/pick --autopilot --list
+--frontend app` for the states, and the two scripts above, and shows what they
+print, their errors included. `bin/pick --list` prints the list the TUI's
+popups show, one entry a line, tab-separated: the directory and the label.
+With `--autopilot` each line has the state as a third field. The workspace's
+own entry has no autopilot: Ctrl+T on it shows what the script says, that it is
+not a repo of the workspace. Ctrl+T does nothing while the states are being
+read, so that a late answer does not overwrite the new one. The mod's `exec`,
+which runs the scripts, takes no environment of its own, so the front end goes
+as the option `--frontend app` and not as `OXC0_HERDR_FRONTEND` (Which front
+end, above). The environment it has is the login one, with no mise: the scripts
+run with the OS's `bash` and `python3` (3.9 on the operator's machine), so
+nothing in them may ask for a newer Python, and
+`/usr/bin/python3 bin/autopilot --self-test` checks it.
+
+How the mod finds the workspace: a mod cannot ask where it is. The app holds
+it as a link, `<app home>/mods/0xc0-workspace`, to `herdr/mods/0xc0-workspace`
+here; the mod resolves that link physically (`pwd -P`) and takes the folder
+three levels up. A copy of the mod instead of a link, or a link to a folder
+that is not in this repo, does not load: the popup says it is not a link to
+`herdr/mods/0xc0-workspace` of the workspace.
+
+Installing it: `./bootstrap.sh` links it, once per machine. A link needs no
+refresh: each open of the popup reads the files as they are then, so a pull is
+enough. A change made while the popup is shown is not seen until the next open.
+Without `bootstrap.sh`:
+
+```sh
+ln -s "$PWD/herdr/mods/0xc0-workspace" ~/.config/herdr-app/mods/0xc0-workspace
+```
+
+The key is the operator's. Nothing here writes `keys.json`, `settings.json` or
+a layout, `bootstrap.sh` and the mod included. To bind the popup, add this line
+to the `global` section of `~/.config/herdr-app/keys.json`
+(`cmd-shift-a` is free in the default `keys.json` of 0.1.16; the same command
+opens the popup and, called again, closes it):
+
+```json
+"cmd-shift-a": "mod.open:0xc0-workspace"
+```
+
+`herdr-app commands` lists `mod.open`. It works from the terminal too, which is
+how to open the popup without a key: `herdr-app do mod.open --name
+0xc0-workspace`.
+
+What a session and a pilot look like there is in In the app and The autopilot
+in the app, above: a session is a terminal of the core, shown as a tab of a
+space of the app, both named after the repo; a pilot's loop is a terminal named
+`<name>-autopilot`, shown as the `autopilot` tab of that space, and each session
+it starts a `<name>-<n>` tab. The popup only has them started, found and ended,
+through the scripts.
+
+What the app keeps of the mod, once it has seen it:
+
+- its name in `~/.config/herdr-app/seen.json`, and an empty folder
+  `~/.config/herdr-app/data/0xc0-workspace/`;
+- while the app's telemetry is on, its name in the day's list of mods
+  (`telemetry/today.json`). The setting is the operator's, in `settings.json`:
+  nothing here changes it;
+- in the mod's own folder, when it loads it or `herdr-app check` does,
+  `jsconfig.json` and `gpui-kit.d.ts` (820 KB). They are the app's, and the
+  root `.gitignore` keeps them out of git.
+
+`herdr-app check herdr/mods/0xc0-workspace` loads the mod and renders it once.
+The mod starts nothing during a check (`checking()`): its scripts run only in a
+live window. `herdr-app status` lists the mod under `overlays` once it is
+opened, with its `errors`, empty when it is fine.
+
+Checked on 2026-11-17 with `herdr-app` 0.1.16 and `hc` 0.1.21, with throwaway
+mods in the live window: a linked mod loads, a name that starts with a digit
+works, and each open reads the files as they are then. The app and its core are
+0.1.x and update themselves, so an update can break what this relies on, with
+no change here:
+
+- the mod's own API, the `herdr` and `gpui-kit` modules, or `mod.json`: the mod
+  stops loading, or draws wrong. `herdr-app check herdr/mods/0xc0-workspace`
+  says so with the exact error, and `herdr-app status` lists it under the
+  mod's `errors`. The popup is the only thing that breaks;
+- the commands the backend uses (`hc`, `herdr-app do`): `open-session` and the
+  autopilot stop working in the app, wherever they are asked from.
+  `bin/autopilot state <repo> --frontend app` asks the real core and changes
+  nothing; `bin/autopilot --self-test` only says the backend still reads the
+  answers recorded from 0.1.x, not that the programs still give them.
+
+The way back is the TUI, and nothing there depends on the app: its plugin and
+its two keys stay as they are, and `bootstrap.sh` keeps setting them up.
+`--frontend tui`, or `OXC0_HERDR_FRONTEND=tui`, on `open-session` and
+`autopilot` asks for the TUI from any terminal, and an autopilot already
+running in the app is found and turned off there by `toggle` (Where it runs,
+above). To stop loading the mod, remove its link, `rm
+~/.config/herdr-app/mods/0xc0-workspace`: the link only, not the folder it
+points to.
+
 ## Models
 
 Herdr passes no model flag. Each repo's committed `.claude/settings.json`
@@ -483,9 +599,17 @@ would bring a new binary and its new checksums together (workspace#157).
 
 ## Setting it up, once per machine
 
-`bootstrap.sh` links the plugin in place, so a change here reaches Herdr
-with no reinstall. It also installs the file viewer and the renderers it
-needs (File viewer, above). It has mise trust every config under
+`bootstrap.sh` sets up each Herdr front end that is installed, and says which
+it skipped. With the TUI (`herdr` in `PATH`) it links the plugin in place, so a
+change here reaches Herdr with no reinstall, and installs the file viewer. With
+the desktop app (`herdr-app` in `PATH`) it links the mod into
+`~/.config/herdr-app/mods/` (The picker in the app, above): a link that already
+leads here stays, anything else it finds at that path it refuses to replace and
+fails, and so it does when the app's `mods/` folder is not there yet, since the
+app has to start once to make it. It fails too when neither front end is
+installed. It writes no `keys.json`, `settings.json` or layout of either. It
+also installs the renderers the file viewer needs (File viewer, above). It has
+mise trust every config under
 `~/git/github/0xc0-homelab/`, so a new worktree's `mise.toml` asks for no
 `mise trust`, creates `.worktrees/`, and runs `bin/autopilot prepare` for
 every org repo and for the workspace, which also trusts each in Claude Code
@@ -529,6 +653,9 @@ command = "herdr-file-viewer.open-file-viewer-tab"
 description = "Open the file viewer in its own tab"
 ```
 
+The desktop app's one key is a line in the `global` section of its own
+`keys.json`, which the operator edits: The picker in the app, above, has it.
+
 ## Upgrading Herdr
 
 Herdr is the operator's own install, not the workspace's: a Homebrew one on
@@ -560,10 +687,12 @@ the operator's machine. Four steps, and only the third ends anything:
 ## Files
 
 ```
-herdr-plugin.toml         the actions and their popups
+herdr-plugin.toml         the TUI's actions and their popups
 autopilot.conf            each repo's slots
 bin/open-picker           an action: opens a popup
-bin/pick                  the popups: the workspace and every repo cloned in it
+bin/pick                  the TUI's popups: the workspace and every repo cloned
+                          in it; with --list, the list they show, for the app's
+                          mod to read
 bin/open-session          opens or focuses one directory's session, in the
                           front end in use
 bin/autopilot             the autopilot: its loop, and starting or toggling it
@@ -574,6 +703,9 @@ lib/frontend/tui.py       the backend for Herdr's terminal app: every call to
                           the `herdr` binary the two scripts make
 lib/frontend/app.py       the backend for Herdr's desktop app: every call to
                           `hc` and `herdr-app` the two scripts make
+mods/0xc0-workspace/      the app's mod, linked into its folder by
+                          bootstrap.sh: main.js and mod.json, one popup with
+                          both keys (The picker in the app)
 ```
 
 The two scripts never run `herdr`, `hc` or `herdr-app`: they ask
