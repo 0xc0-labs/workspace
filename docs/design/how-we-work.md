@@ -93,7 +93,9 @@ works as above.
   starts it again at the next issue it sets Ready.
 - **Never several sessions on one issue.** A big issue is split into
   sub-issues, which run side by side where none blocks another. Inside one
-  issue, gentle-ai spreads the work over its own subagents.
+  issue, the repo's harness spreads the work over subagents: three reviewers
+  in parallel with `agent-skills`, gentle-ai's own in `payload` until #204
+  (operator decision, 2026-11-17; workspace#214).
 - Orca, which runs agents in worktrees too, was weighed and set aside
   (workspace#104). Herdr already runs the sessions. Orca's notifications to
   the phone go through its maker's servers, and its settings live outside any
@@ -136,29 +138,118 @@ design.
 **Plugins and permissions by kind of repo.** Every repo enables `0xc0` in its
 own `.claude/settings.json`. The infrastructure repos (`.github`,
 `infrastructure`, `gitops`, `vault`, `claude-config`) work with `0xc0`'s
-hooks and skills, with strict permissions. The application repos add
-gentle-ai at workspace scope and the official plugins they need, and an
-unattended session there may work up to a draft PR (operator decision,
-2026-10-10). Inside an application repo, gentle-ai leads the work: its own
-workflow plans, writes and reviews the code, with its receipt-driven review
-on. `/0xc0:work-issue` is the interface between that repo and the
-orchestrator: it starts from `main`, claims the issue on the board and takes
-it as the contract, opens the draft PR by the org's rules, reports back, and
-keeps its list of what a session never does (operator decision, 2026-10-11;
-workspace#68). The cost is accepted: gentle-ai's reviewers spend more of the
-subscription. For a change of medium or high risk, gentle-ai asks whether to
-spend the time on a review. The question does not approve the change. A
-session the autopilot starts grants it itself, on the operator's standing
-decision (operator decision, 2026-10-12; workspace#117,
-claude-config#57). A session opened by hand asks the operator in its tab.
-Reviews are never turned off: one found three real spots in payload#29. The plugin carries no agents (operator decision, 2026-10-11;
-workspace#78): each repo's session builds and checks its own changes, and
-what a reviewer checked lives in that repo's docs (`infrastructure`'s
-`docs/zones.md`, Invariants; `gitops`' `CLAUDE.md`, Before opening a PR).
-gentle-ai's feature document, `odd/tasks/<feature>.md`, is versioned with
-its feature, in the same PR (operator decision, 2026-10-12; workspace#98):
-gentle-ai means it to be recoverable, and commits its own; Engram's copy is
-on one laptop.
+hooks and skills, with strict permissions. The application repos add the
+harness that leads the work inside an issue and the official plugins they
+need, and an unattended session there may work up to a draft PR (operator
+decision, 2026-10-10). The harness is `agent-skills` in `packages` and
+`artistlabco.com`, and what every new application repo starts with;
+`payload` keeps gentle-ai until it is retired (workspace#204); `offby1.cc`
+carries neither (operator decision, 2026-11-17; workspace#214). Everything
+outside an issue stays the org's, whatever the harness: the board, the
+autopilot, and `/0xc0:work-issue` as the interface and the frame. It is the
+interface between that repo and the orchestrator: it starts from `main`,
+claims the issue on the board and takes it as the contract, opens the draft
+PR by the org's rules, reports back, and keeps its list of what a session
+never does (operator decision, 2026-10-11; workspace#68). Where a harness's
+instructions and the org's differ, the org's win. The `0xc0` plugin carries
+no agents (operator decision, 2026-10-11; workspace#78): each repo's session
+builds and checks its own changes, and what a reviewer checked lives in that
+repo's docs (`infrastructure`'s `docs/zones.md`, Invariants; `gitops`'
+`CLAUDE.md`, Before opening a PR).
+
+**`agent-skills` leads the work inside an issue** (operator decision,
+2026-11-17; workspace#214). It is Addy Osmani's Claude Code plugin,
+`addyosmani/agent-skills` (MIT): skills for each step of a change (spec,
+plan, incremental build, tests first, debugging, review, simplification),
+reviewer agents, and commands that chain them. It registers no hook, starts
+no MCP server, installs no binary and keeps no memory. Nothing replaces
+Engram: what must outlive a session is in the issue, the PR and the repo's
+files, the spec among them. Its commands (`/spec`, `/plan`, `/build`,
+`/test`, `/review`, `/ship`, `/code-simplify`, `/constraints`, `/webperf`)
+are the operator's to type, in a session opened by hand: the plugin marks
+them `disable-model-invocation`, so no session runs one by itself.
+
+**The feature document is versioned with its feature**, in the same PR
+(operator decision, 2026-10-12; workspace#98): a plan must be recoverable
+from the repo, not kept on one laptop. With `agent-skills`, a Feature starts
+with `spec/<feature>.md` (operator decision, 2026-11-17; workspace#214): the
+spec, the plan and the task list in that one file, written with the plugin's
+`spec-driven-development` and `planning-and-task-breakdown`. It is the first
+commit of the Feature's branch, alone, as `docs(spec): plan <feature>`, and
+`.github`'s `spec-first` checks it, as `odd-first` checks `odd/tasks/*.md`
+for `payload`. The skills' own defaults (`SPEC.md` at the root,
+`tasks/plan.md`, `tasks/todo.md`) are not used: both skills yield to a
+project's convention, and this is it. A Task or a Bug needs no document. In
+`payload`, gentle-ai's is `odd/tasks/<feature>.md`: gentle-ai means it to be
+recoverable, and commits its own; Engram's copy is on one laptop.
+
+**No stop for approval** (operator decision, 2026-11-17; workspace#214).
+`spec-driven-development` stops after the spec and asks the human to approve
+it. In a session the issue is the approved requirement, and the spec is
+reviewed with the PR, as `payload`'s `odd/tasks/<feature>.md` is. What the
+issue leaves open is a question on the issue, not an assumption in the spec.
+
+**The review before a PR is ready** (operator decision, 2026-11-17;
+workspace#214). Three reviewers run in parallel on the branch's diff:
+`agent-skills:code-reviewer`, `agent-skills:security-auditor` and
+`agent-skills:test-engineer`. The session fixes and runs them again until
+none returns a blocking finding:
+
+| Reviewer | Blocking |
+|---|---|
+| `code-reviewer` | a finding it rates Critical or Required |
+| `security-auditor` | a finding it rates Critical or High |
+| `test-engineer` | a missing test it rates Critical or High, for behaviour the change adds or alters |
+
+At most three rounds: a blocking finding still open after them, or one the
+session holds wrong, leaves the PR a draft with the reason in its report,
+for the orchestrator. The review applies to every PR that changes more than
+documentation: one whose every file is `**/*.md`, `docs/**`, `.claude/**`
+or `LICENSE`, what `.github`'s `changes` action already treats as no code,
+runs none. The cost is accepted: three reviewers a round, on the subagents'
+model (Sonnet). Reviews are never turned off, with either harness: one found
+three real spots in payload#29.
+
+**Skills that yield to the org's rules** (operator decision, 2026-11-17;
+workspace#214). Five of the plugin's skills cover what the org already
+rules, and each repo that carries it denies them in its
+`.claude/settings.json` (`Skill(agent-skills:<skill>)` in
+`permissions.deny`):
+
+| Skill | The org's rule instead |
+|---|---|
+| `git-workflow-and-versioning` | commits, branches and PRs: the workspace's `CLAUDE.md` |
+| `ci-cd-and-automation` | every workflow lives in `.github` |
+| `constraint-driven-development` | it interviews the operator and writes a `CONSTRAINTS.md`; a repo's rules are its `CLAUDE.md` |
+| `documentation-and-adrs` | decisions live in the workspace's `docs/design` |
+| `shipping-and-launch` | release and promotion: [delivery](delivery.md), and the operator |
+
+**The pin** (operator decision, 2026-11-17; workspace#214). The org
+marketplace, `claude-config`'s `.claude-plugin/marketplace.json`, serves the
+plugin at a tag and its commit (`ref` and `sha`). Addy's own marketplace is
+not used: pinning it pins only its catalogue, and its entry installs the
+plugin's default branch. So third-party instructions reach a session only at
+a commit the org chose. A repo only enables `agent-skills@0xc0-labs`: moving
+the pin is one PR in `claude-config`, not a `.claude/` commit in each repo,
+and it reaches every repo through the `autoUpdate` of `0xc0-labs`. A new
+application repo starts with `agent-skills@0xc0-labs` enabled, the five
+skills denied, and the `spec-first` caller.
+
+**`payload` keeps gentle-ai until it is retired** (workspace#204). There it
+is added at workspace scope and leads the work as before: its own workflow
+plans, writes and reviews the code, with its receipt-driven review on. For a
+change of medium or high risk, it asks whether to spend the time on a
+review. The question does not approve the change. A session the autopilot
+starts grants it itself, on the operator's standing decision (operator
+decision, 2026-10-12; workspace#117, claude-config#57). A session opened by
+hand asks the operator in its tab. The cost is accepted: its reviewers spend
+more of the subscription. Every other repo leaves it for `agent-skills`, for
+three reasons (operator decision, 2026-11-17; workspace#214): it brings too
+much machinery of its own to each repo, a 526-line `.claude/CLAUDE.md`, nine
+agents, eight skills, a receipt-driven review with consent envelopes, Engram
+and two binaries pinned in `mise.toml`; it weighs too much in every session's
+context; and `agent-skills` is a standard pack, more active
+([discarded](../discarded.md)).
 
 **What stays the operator's**: merging, every apply, writing and rotating
 secrets, which repos' sessions are open, and pausing a repo's autopilot.
