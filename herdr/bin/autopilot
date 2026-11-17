@@ -2,23 +2,32 @@
 """A repo's autopilot: works its Ready issues, one fresh Claude Code session
 per issue, each in its own tab and worktree (README.md, Autopilot).
 
-  autopilot run <repo> [--dry-run]  the loop, in the repo's `autopilot` tab;
+  autopilot run <repo> [--dry-run] [--frontend tui|app]
+                                    the loop, in the repo's `autopilot` tab;
                                     --dry-run prints one round and changes nothing
-  autopilot start <repo>            turns it on, if it is off
-  autopilot toggle <repo>           turns it on or off
-  autopilot state <repo>            prints on, off, or dead (a tab whose loop
+  autopilot start <repo> [--frontend tui|app]
+                                    turns it on, if it is off
+  autopilot toggle <repo> [--frontend tui|app]
+                                    turns it on or off
+  autopilot state <repo> [--frontend tui|app]
+                                    prints on, off, or dead (a tab whose loop
                                     exited; `start` restarts it)
   autopilot prepare <repo>          clones the repo if missing, puts it on an
                                     up-to-date main, installs its plugins,
                                     trusts it in Claude Code; `.` for the
                                     workspace's plugins and trust only
-  autopilot --self-test             checks how the last line is recognised
+  autopilot --self-test             checks how the last line is recognised, the
+                                    front ends and the app backend
 
-<repo> is the repo's directory in the workspace, or its path.
+<repo> is the repo's directory in the workspace, or its path. The front end is
+the one asked for, with --frontend or OXC0_HERDR_FRONTEND; else the one this
+runs in; else the app if its window answers, and the TUI if not (README.md,
+Which front end). `start`, `toggle` and `state` also look in every other front
+end that answers, and a repo never has two autopilots.
 
-Every minute, in the Herdr workspace named after the repo's session, it
-closes the tab of each session that printed its last line, and starts one
-session per free slot:
+Every minute, in the space of the front end in use named after the repo's
+session, it closes the tab of each session that printed its last line, and
+starts one session per free slot:
 
   claude --permission-mode auto --settings .worktrees/.hooks.json \
     -n <session>-<n> -w <session>-<n> "/0xc0:work-issue <repo>#<n>"
@@ -41,6 +50,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import types
 from pathlib import Path
 
 ORG = "0xc0-labs"
@@ -74,9 +84,7 @@ sys.path.insert(0, str(LIB))
 import frontend  # noqa: E402
 from frontend import Failed  # noqa: E402
 
-# A pilot runs in the TUI whichever front end the layer's rule picks, until its
-# operations exist in the app's backend (0xc0-labs/workspace#231).
-frontend.use("tui")
+USAGE = __doc__.strip().split("\n\n")[1]
 
 QUERY = """
 query($owner: String!, $name: String!) {
@@ -288,6 +296,404 @@ def core_cases(app):
     return cases
 
 
+SCREEN = "THE-WHOLE-TEXT-OF-A-TERMINAL"
+
+
+def app_autopilot_cases(app):
+    """(what, got, want) for the app backend's operations of the autopilot,
+    with `hc` and `herdr-app` answered from the shapes below: nothing runs.
+
+    Recorded from the real programs (0xc0-labs/workspace#226, #231): the rows
+    of `hc ls --all`, `hc run`'s answer, `hc rm`'s `{"removed": …}`, `hc get`'s
+    fields (`foreground`, `keep`, `rm`, `parent`, `notify`, `labels`) and the
+    shape of `hc wait`'s and `hc read`'s answers. Stand-ins, never seen from
+    the programs because they take restarting the core: the `hc get` of a
+    session left as a shell, built from `hc schema`, and `hc kill`'s answer,
+    which the backend does not read."""
+    cases = []
+    session = app.Session("t7", "payload-19", {})
+    tab, ended = app.Tab("t7", "payload-19", True), app.Tab("t8", "payload-21", False)
+
+    def plays(what, recorded, action, ran, printed, result):
+        cases.append((f"app autopilot: {what}", play(app, recorded, action), (ran, printed, result)))
+
+    def row(**fields):
+        return {"address": "t7", "agent": "claude-code", "cwd": "/ws/payload", "name": "payload-19",
+                "state": "live", "turn": 0, **fields}
+
+    def ls(*rows):
+        return 0, json.dumps({"hidden_finished": 0, "terminals": list(rows)})
+
+    def terminal(foreground=None):
+        return 0, json.dumps({"address": "t7", "argv": ["env", "OXC0_AUTOPILOT=1", "claude"], "keep": True,
+                              "labels": {"oxc0.role": "worker", "herdr.seen": "0"}, "name": "payload-19",
+                              "notify": False, "parent": None, "rm": False, "state": "live", "turn": 0,
+                              "screen": SCREEN, **({"foreground": foreground} if foreground else {})})
+
+    claude = ["claude", "--permission-mode", "auto", "-n", "payload-19", "-w", "payload-19",
+              "/0xc0:work-issue payload#19"]
+    get = "hc get t7 --json"
+    not_found = (3, '{"error":{"kind":"not_found","message":"t7 was removed"}}')
+
+    plays("a space is there as soon as it has a name", {}, lambda: app.find_space("payload"), [], "",
+          app.Space("payload"))
+
+    # The sessions of a space.
+    listed = "hc ls --all --label oxc0.space=payload --label oxc0.role=worker --json"
+    plays("the sessions of a space: one per terminal named after an issue, finished ones included",
+          {listed: ls(row(status="working", turn=1),
+                      row(address="t8", name="payload-21", state="finished", exit_code=129, reason="killed", turn=1),
+                      row(address="t9", name=None), row(address="t10", name="payload-x"),
+                      row(address="t11", name="other-3"))},
+          lambda: [(w.n, w.name, str(w.tab), w.tab.live, w.session.address)
+                   for w in app.workers(app.find_space("payload"))],
+          [listed], "", [(19, "payload-19", "t7", True, "t7"), (21, "payload-21", "t8", False, "t8")])
+    plays("no sessions", {listed: ls()}, lambda: list(app.workers(app.find_space("payload"))), [listed], "", [])
+    plays("an answer without a list of terminals", {listed: (0, "{}")},
+          lambda: list(app.workers(app.find_space("payload"))), [listed], "",
+          "failed: hc ls: its answer has no list of terminals")
+
+    # A session's state, row by row of the table in README.md, In the app.
+    shell = {"argv": ["-zsh"], "cwd": "/ws/payload", "name": "zsh", "pid": 4300}
+    states = [
+        ("finished: its program exited", dict(state="finished", exit_code=0, reason="exited", turn=1), False,
+         frontend.ENDED),
+        ("finished: it was killed", dict(state="finished", exit_code=129, reason="killed", turn=1), False,
+         frontend.ENDED),
+        ("turn 0, idle at its startup: not at rest", dict(status="idle"), False, frontend.BUSY),
+        ("turn 0, done: not at rest", dict(status="done"), False, frontend.BUSY),
+        ("turn 0, working", dict(status="working"), False, frontend.BUSY),
+        ("turn 0, blocked at the trust question", dict(status="blocked"), False, frontend.BUSY),
+        ("turn 1, idle: at rest", dict(status="idle", turn=1), False, frontend.AT_REST),
+        ("turn 1, done: at rest", dict(status="done", turn=1), False, frontend.AT_REST),
+        ("turn 3, done: at rest", dict(status="done", turn=3), False, frontend.AT_REST),
+        ("turn 1, working", dict(status="working", turn=1), False, frontend.BUSY),
+        ("turn 1, blocked on a permission", dict(status="blocked", turn=1), False, frontend.BUSY),
+        ("turn 1, an error", dict(status="error", turn=1), False, frontend.BUSY),
+        ("starting, nothing reported yet: Claude Code in front", dict(), {"argv": claude}, frontend.BUSY),
+        ("starting, nothing reported yet: env in front, about to become it",
+         dict(), {"argv": ["env", "OXC0_AUTOPILOT=1", *claude]}, frontend.BUSY),
+        ("nothing reported, Claude Code under its program's name alone",
+         dict(turn=1), {"argv": ["claude"], "name": "node"}, frontend.BUSY),
+        ("nothing reported, no `foreground` in the answer", dict(), None, frontend.BUSY),
+        ("nothing reported, a `foreground` without a command line", dict(), {"name": "zsh"}, frontend.BUSY),
+        ("left as a shell at turn 0: its program is gone", dict(), shell, frontend.ENDED),
+        ("left as a shell at turn 1: its program is gone", dict(turn=1), shell, frontend.ENDED),
+        ("left as a shell, whose path is absolute", dict(), {"argv": ["/bin/zsh", "-l"]}, frontend.ENDED),
+    ]
+    for what, fields, foreground, want in states:
+        asked = foreground is not False
+        plays(f"a session's state, {what}", {get: terminal(foreground or None)} if asked else {},
+              lambda fields=fields: app.session_state(app.Session("t7", "payload-19", row(**fields))),
+              [get] if asked else [], "", want)
+    plays("a session whose state cannot be read", {get: not_found},
+          lambda: app.session_state(app.Session("t7", "payload-19", row())), [get], "",
+          "failed: hc get: not_found: t7 was removed")
+
+    # What `hc get` and `hc read` answer is a terminal's text: it goes nowhere.
+    leaked = play(app, {get: terminal(shell)}, lambda: app.session_state(app.Session("t7", "payload-19", row())))
+    cases.append(("the screen hc get answers is dropped and goes nowhere", SCREEN in repr(leaked), False))
+    plays("hc get answering what is not JSON says nothing of it", {get: (0, f"{SCREEN} is not JSON")},
+          lambda: app.session_state(app.Session("t7", "payload-19", row())), [get], "",
+          "failed: hc get: its answer is not JSON")
+    read = "hc read t7 --json --lines 80"
+    screen = "\n".join(["Opened the PR.", "⏺ work-issue: done payload#19", "", "> "])
+    answer = (0, json.dumps({"complete": True, "how": "stitched", "text": screen}))
+    plays("a session's last lines: the text of hc read's answer", {read: answer},
+          lambda: app.read_screen(session), [read], "", screen)
+    plays("hc read answering what is not JSON says nothing of it", {read: (0, f"{SCREEN} is not JSON")},
+          lambda: app.read_screen(session), [read], "", "failed: hc read: its answer is not JSON")
+    plays("hc read answering without text", {read: (0, '{"complete":true,"how":"screen"}')},
+          lambda: app.read_screen(session), [read], "", "failed: hc read: its answer has no text")
+    read_back = play(app, {read: answer}, lambda: app.read_screen(session))[2]
+    last_lines = [
+        ("done", read_back, "done payload#19"),
+        ("stopped", "⏺ work-issue: stopped payload#19: checks red\n> ", "stopped payload#19: checks red"),
+        ("a sentence that quotes it", "I will print `work-issue: done payload#19` when it is merged.", None),
+    ]
+    for what, text, want in last_lines:
+        cases.append((f"the last line, from a recorded hc read answer: {what}",
+                      find_last_line("payload", 19, text), want))
+
+    # Ending a session: its screen is read before, never after.
+    kill, wait, rm = "hc kill t7", "hc wait t7 --timeout 10 --json", "hc rm t7"
+    killed = (0, '{"address":"t7","state":"finished","reason":"killed","exit_code":129,"turn":1}')
+    waited = (0, '{"ended":true,"exit_code":129,"reason":"exit","status":null,"turn":1}')
+    removed = (0, '{"removed":"t7"}')
+    plays("a live session ends with kill, wait and rm", {kill: killed, wait: waited, rm: removed},
+          lambda: app.close_tab(tab), [kill, wait, rm], "", None)
+    plays("a finished session is only removed", {"hc rm t8": (0, '{"removed":"t8"}')},
+          lambda: app.close_tab(ended), ["hc rm t8"], "", None)
+    plays("a session that does not end is not removed and not waited for for ever",
+          {kill: killed, wait: (0, '{"ended":false,"reason":"timeout","turn":1}'), rm: removed},
+          lambda: app.close_tab(tab), [kill, wait], "", "failed: payload-19 did not end 10 seconds after hc kill")
+    plays("a session already gone is not an error", {kill: not_found},
+          lambda: app.close_tab(tab), [kill], "", None)
+    plays("a session removed meanwhile is not an error", {kill: killed, wait: waited, rm: not_found},
+          lambda: app.close_tab(tab), [kill, wait, rm], "", None)
+    plays("hc rm refusing a terminal that is live says so",
+          {kill: killed, wait: waited, rm: (4, '{"error":{"kind":"live","message":"t7 is live"}}')},
+          lambda: app.close_tab(tab), [kill, wait, rm], "", "failed: hc rm: live: t7 is live")
+    plays("a dry run prints the commands and runs none of them", {},
+          lambda: app.close_tab(tab, dry=True), [], f"{kill}\n{wait}\n{rm}\n", None)
+    plays("a dry run on a finished session prints the removal", {},
+          lambda: app.close_tab(ended, dry=True), [], "hc rm t8\n", None)
+
+    # Starting a session.
+    command = shlex.join(["claude", "--permission-mode", "auto", "--settings", "/ws/.worktrees/.hooks.json",
+                          "-n", "payload-19", "-w", "payload-19", "/0xc0:work-issue payload#19"])
+    start = ("hc run --bg --keep --no-parent --no-notify --json --name payload-19 --cwd /ws/payload "
+             "--label herdr.space=oxc0-payload --label herdr.tab=oxc0-payload-19 "
+             "--label oxc0.space=payload --label oxc0.role=worker --label oxc0.issue=19 "
+             "-- env OXC0_AUTOPILOT=1 claude --permission-mode auto --settings /ws/.worktrees/.hooks.json "
+             "-n payload-19 -w payload-19 '/0xc0:work-issue payload#19'")
+    started = (0, '{"address":"t7","agent":"claude","cwd":"/ws/payload","name":"payload-19","state":"live","turn":0}')
+    status, ok = "herdr-app status", (0, '{"ok": true}')
+    not_shown = (1, '{"error": "no such space"}')
+    space, tab_rename = ("herdr-app do space.rename --id oxc0-payload --name payload",
+                         "herdr-app do tab.rename --id oxc0-payload-19 --name payload-19")
+
+    def begin(**more):
+        return lambda: app.start_session(app.Space("payload"), "payload-19", "/ws/payload", command,
+                                         {"OXC0_AUTOPILOT": "1"}, **more)
+
+    plays("a session starts with its command in the terminal's creation, then is named, retried until shown",
+          {status: (0, "{}"), start: started, space: [not_shown, ok], tab_rename: ok},
+          begin(), [status, start, space, space, tab_rename], "", None)
+    plays("a session starts when the window does not answer, and nothing else differs",
+          {status: (2, ""), start: started}, begin(), [status, start], "", None)
+    plays("a window that never shows the terminal is said, not an error",
+          {status: (0, "{}"), start: started, space: not_shown}, begin(),
+          [status, start] + [space] * app.ATTEMPTS,
+          "payload-19 started as t7, but the window did not show it to name it: no such space\n", None)
+    plays("a dry run with the window prints the commands and runs none of them", {status: (0, "{}")},
+          begin(dry=True), [status], "\n".join([start, space, tab_rename]) + "\n", None)
+    plays("a dry run without the window prints the session's command", {status: (2, "")},
+          begin(dry=True), [status], start + "\n# the app's window does not answer: nothing to name\n", None)
+    plays("a name a live terminal has is said", {
+        status: (2, ""), start: (4, '{"error":{"kind":"name_taken","message":"payload-19 is taken"}}')},
+          begin(), [status, start], "", "failed: hc run: name_taken: payload-19 is taken")
+    plays("a name that is not an issue's of the space", {},
+          lambda: app.start_session(app.Space("payload"), "other-3", "/ws/payload", command, {}), [], "",
+          "failed: other-3 is not a session of payload: its name is payload-<issue>")
+    plays("a session with no variables has no env in front",
+          {status: (2, ""), start.replace("env OXC0_AUTOPILOT=1 ", ""): started},
+          lambda: app.start_session(app.Space("payload"), "payload-19", "/ws/payload", command, {}),
+          [status, start.replace("env OXC0_AUTOPILOT=1 ", "")], "", None)
+
+    # The pilot's loop.
+    pilot_ls = "hc ls --all --label oxc0.space=payload --label oxc0.role=autopilot --json"
+    loop = shlex.join(["/ws/my herdr/bin/autopilot", "run", "/ws/payload"])
+    start_loop = ("hc run --bg --no-parent --no-notify --json --name payload-autopilot --cwd /ws/payload "
+                  "--label herdr.space=oxc0-payload --label herdr.tab=oxc0-payload-autopilot "
+                  "--label oxc0.space=payload --label oxc0.role=autopilot "
+                  "-- env OXC0_HERDR_FRONTEND=app '/ws/my herdr/bin/autopilot' run /ws/payload")
+    loop_started = (0, '{"address":"t3","agent":"python3","cwd":"/ws/payload","name":"payload-autopilot",'
+                       '"state":"live","turn":0}')
+    loop_tab = "herdr-app do tab.rename --id oxc0-payload-autopilot --name autopilot"
+    plays("a pilot's loop starts with the front end in its command, then is named", {
+        status: (0, "{}"), start_loop: loop_started, space: ok, loop_tab: ok},
+          lambda: app.start_pilot("payload", "/ws/payload", loop), [status, start_loop, space, loop_tab], "", None)
+    plays("a pilot's loop starts when the window does not answer", {status: (2, ""), start_loop: loop_started},
+          lambda: app.start_pilot("payload", "/ws/payload", loop), [status, start_loop], "", None)
+
+    # The pilot's state, row by row of the table in README.md, In the app.
+    def found():
+        tab_found = app.pilot("payload")
+        return (str(tab_found), app.pilot_alive(tab_found)) if tab_found else None
+
+    def loop_row(**fields):
+        return row(**{"address": "t3", "name": "payload-autopilot", **fields})
+
+    gone = dict(state="finished", turn=0)
+    pilot_rows = [
+        ("a live one: on", [loop_row(status="working", turn=1)], ("t3", True), []),
+        ("a live one that has not reported yet: on", [loop_row()], ("t3", True), []),
+        ("none live, one finished with exit 0: off, and it is removed",
+         [loop_row(**gone, exit_code=0, reason="exited")], None, ["hc rm t3"]),
+        ("none live, one finished with another exit code: dead",
+         [loop_row(**gone, exit_code=129, reason="killed")], ("t3", False), []),
+        ("none live, one finished with no exit code: dead",
+         [loop_row(**gone, reason="signaled")], ("t3", False), []),
+        ("none: off", [], None, []),
+        ("one live and an older one that exited with 0: on, and the old one is removed",
+         [loop_row(address="t2", **gone, exit_code=0, reason="exited"), loop_row(status="idle", turn=1)],
+         ("t3", True), ["hc rm t2"]),
+        ("one that exited with 0 and one that did not: dead, and the first is removed",
+         [loop_row(address="t2", **gone, exit_code=0, reason="exited"),
+          loop_row(**gone, exit_code=1, reason="exited")], ("t3", False), ["hc rm t2"]),
+    ]
+    for what, rows, want, more in pilot_rows:
+        recorded = {pilot_ls: ls(*rows), **{removal: (0, '{"removed":"t"}') for removal in more}}
+        plays(f"a pilot's state, {what}", recorded, found, [pilot_ls, *more], "", want)
+    plays("a pilot removed meanwhile is not an error", {
+        pilot_ls: ls(loop_row(**gone, exit_code=0, reason="exited")), "hc rm t3": not_found},
+          found, [pilot_ls, "hc rm t3"], "", None)
+    plays("a loop's terminal ends with the loop: no tab of its own to close", {}, lambda: app.is_own_tab(tab), [],
+          "", False)
+    return cases
+
+
+def stand_in_cases(tui):
+    """(what, got, want) for the TUI backend's new arguments, with `herdr`
+    replaced by a function that logs what it is asked, and for a round that
+    only prints: nothing runs."""
+    cases = []
+    herdr_calls, ran = [], []
+
+    def herdr(*args):
+        herdr_calls.append(args)
+        return {"workspaces": [], "tab": {"tab_id": "w1:1"}, "root_pane": {"pane_id": "p1"}}
+
+    saved = tui.herdr, tui.run
+    tui.herdr, tui.run = herdr, lambda *args: ran.append(args) or ""
+    try:
+        tui.start_pilot("payload", "/ws/payload", "/ws/herdr/bin/autopilot run /ws/payload")
+        cases.append(("tui: its loop is told its front end in the command typed into its pane",
+                      ran, [(tui.HERDR, "pane", "run", "p1", "/ws/herdr/bin/autopilot run /ws/payload --frontend tui")]))
+        before = len(herdr_calls), len(ran)
+        tui.start_session(None, "payload-19", "/ws/payload", "claude", {}, dry=True)
+        tui.close_tab(tui.Tab("w1:1", "payload"), dry=True)
+        cases.append(("tui: a dry start and a dry close run nothing", (len(herdr_calls), len(ran)), before))
+    finally:
+        tui.herdr, tui.run = saved
+
+    calls, out = [], io.StringIO()
+    stand_in = types.SimpleNamespace(
+        __name__="frontend.stand_in",
+        find_space=lambda name: "space",
+        workers=lambda space, dry: iter([frontend.Worker(5, "zz-selftest-5", "T5", "S5")]),
+        session_state=lambda session: frontend.ENDED,
+        close_tab=lambda tab, dry=False: calls.append(f"close_tab {tab} dry={dry}"),
+        start_session=lambda space, name, directory, command, env, dry=False: calls.append(
+            f"start_session {name} {env} dry={dry}"))
+    saved_ready, saved_backend = globals()["ready"], frontend.backend
+    globals()["ready"] = lambda repo: [(987654, "2026-11-17T00:00:00Z")]
+    frontend.backend = stand_in
+    try:
+        with contextlib.redirect_stdout(out):
+            done = round_(Path("/nonexistent/zz-selftest"), "zz-selftest", "zz-selftest", {}, True)
+    finally:
+        globals()["ready"], frontend.backend = saved_ready, saved_backend
+    log_lines = [line.split(" ", 1)[1] for line in out.getvalue().splitlines()]
+    cases.append(("round: a dry round closes and starts through the layer, with dry set",
+                  calls, ["close_tab T5 dry=True", "start_session zz-selftest-987654 {'OXC0_AUTOPILOT': '1'} dry=True"]))
+    cases.append(("round: a dry round says what it would do",
+                  [any(text in line for line in log_lines) for text in ("would close tab T5", "would start, in")],
+                  [True, True]))
+    cases.append(("round: a dry round is not the last one", done, False))
+    return cases
+
+
+def pilot_flow_cases():
+    """(what, got, want) for how `start`, `toggle` and `state` look in each
+    front end that answers, with a stand-in backend per front end that logs
+    each operation as `<front end>.<operation>`: nothing runs."""
+    cases = []
+    d = Path("/ws/payload")
+
+    def flow(what, action, found, picked="tui", core=()):
+        calls, out = [], io.StringIO()
+
+        def load(name):
+            def pilot(space):
+                calls.append(f"{name}.pilot")
+                return f"{name}:{found[name]}" if name in found else None
+
+            def pilot_alive(tab):
+                calls.append(f"{name}.pilot_alive")
+                return tab.endswith(":live")
+
+            def close_tab(tab, dry=False):
+                calls.append(f"{name}.close_tab")
+
+            def start_pilot(space, directory, command):
+                calls.append(f"{name}.start_pilot {space}")
+            return types.SimpleNamespace(__name__=f"frontend.{name}", pilot=pilot, pilot_alive=pilot_alive,
+                                         close_tab=close_tab, start_pilot=start_pilot)
+
+        saved = frontend.load, frontend.backend
+        frontend.load = load
+        try:
+            with contextlib.redirect_stdout(out):
+                result = outcome(lambda: action(d, picked, asks(core=core)))
+        finally:
+            frontend.load, frontend.backend = saved
+        return calls, out.getvalue(), result
+
+    def flows(what, found, picked, core, state_want, start_want, toggle_want):
+        for action, (calls, printed, result) in (("state", state_want), ("start", start_want),
+                                                 ("toggle", toggle_want)):
+            got = flow(what, globals()[action], found, picked, core)
+            cases.append((f"{action}, {what}", got, (calls, printed, result)))
+
+    on, off = "payload: autopilot on\n", "payload: autopilot off\n"
+    flows("only the TUI answers, the pilot is on there", {"tui": "live"}, "tui", (),
+          (["tui.pilot", "tui.pilot_alive"], "", "on"),
+          (["tui.pilot", "tui.pilot_alive"], "payload: autopilot already on\n", None),
+          (["tui.pilot", "tui.close_tab"], off, None))
+    flows("only the TUI answers, the pilot is dead there", {"tui": "dead"}, "tui", (),
+          (["tui.pilot", "tui.pilot_alive"], "", "dead"),
+          (["tui.pilot", "tui.pilot_alive", "tui.close_tab", "tui.start_pilot payload"],
+           "payload: autopilot was dead; restarting\n" + on, None),
+          (["tui.pilot", "tui.close_tab"], off, None))
+    flows("only the TUI answers, no pilot", {}, "tui", (),
+          (["tui.pilot"], "", "off"),
+          (["tui.pilot", "tui.start_pilot payload"], on, None),
+          (["tui.pilot", "tui.start_pilot payload"], on, None))
+    flows("the app does not answer, so it is not asked, though it has one", {"app": "live"}, "tui", (),
+          (["tui.pilot"], "", "off"),
+          (["tui.pilot", "tui.start_pilot payload"], on, None),
+          (["tui.pilot", "tui.start_pilot payload"], on, None))
+    flows("the pilot is on in the app, the TUI picked", {"app": "live"}, "tui", ("app",),
+          (["tui.pilot", "app.pilot", "app.pilot_alive"], "", "on"),
+          (["tui.pilot", "app.pilot", "app.pilot_alive"], "payload: autopilot already on (in the app)\n", None),
+          (["tui.pilot", "app.pilot", "app.close_tab"], "payload: autopilot off (in the app)\n", None))
+    flows("the pilot is on in the TUI, the app picked", {"tui": "live"}, "app", ("tui",),
+          (["app.pilot", "tui.pilot", "tui.pilot_alive"], "", "on"),
+          (["app.pilot", "tui.pilot", "tui.pilot_alive"], "payload: autopilot already on (in the TUI)\n", None),
+          (["app.pilot", "tui.pilot", "tui.close_tab"], "payload: autopilot off (in the TUI)\n", None))
+    flows("the pilot is on in the app, the app picked", {"app": "live"}, "app", ("tui",),
+          (["app.pilot", "tui.pilot", "app.pilot_alive"], "", "on"),
+          (["app.pilot", "tui.pilot", "app.pilot_alive"], "payload: autopilot already on\n", None),
+          (["app.pilot", "tui.pilot", "app.close_tab"], off, None))
+    flows("the pilot is dead in the TUI, the app picked", {"tui": "dead"}, "app", ("tui",),
+          (["app.pilot", "tui.pilot", "tui.pilot_alive"], "", "dead"),
+          (["app.pilot", "tui.pilot", "tui.pilot_alive", "tui.close_tab", "app.start_pilot payload"],
+           "payload: autopilot was dead (in the TUI); restarting\n" + on, None),
+          (["app.pilot", "tui.pilot", "tui.close_tab"], "payload: autopilot off (in the TUI)\n", None))
+    flows("on in the app, dead in the TUI, the TUI picked: on wins", {"app": "live", "tui": "dead"}, "tui", ("app",),
+          (["tui.pilot", "app.pilot", "tui.pilot_alive", "app.pilot_alive"], "", "on"),
+          (["tui.pilot", "app.pilot", "tui.pilot_alive", "app.pilot_alive"],
+           "payload: autopilot already on (in the app)\n", None),
+          (["tui.pilot", "app.pilot", "tui.close_tab", "app.close_tab"],
+           "payload: autopilot off\npayload: autopilot off (in the app)\n", None))
+    flows("no pilot in either", {}, "app", ("tui",),
+          (["app.pilot", "tui.pilot"], "", "off"),
+          (["app.pilot", "tui.pilot", "app.start_pilot payload"], on, None),
+          (["app.pilot", "tui.pilot", "app.start_pilot payload"], on, None))
+
+    def parsed(command, rest):
+        try:
+            return options(command, rest)
+        except SystemExit as e:
+            return f"usage: {str(e.code).splitlines()[0]}"
+
+    first = USAGE.splitlines()[0]
+    for what, command, rest, want in [
+        ("a dry run in the app", "run", ["--dry-run", "--frontend", "app"], (True, "app")),
+        ("the option with an equals sign", "start", ["--frontend=tui"], (False, "tui")),
+        ("no options", "toggle", [], (False, None)),
+        ("state takes the front end", "state", ["--frontend", "app"], (False, "app")),
+        ("only run takes --dry-run", "start", ["--dry-run"], f"usage: {first}"),
+        ("an option that is not one", "run", ["--dryrun"], f"usage: {first}"),
+        ("the option without a value", "run", ["--frontend"], f"usage: {first}"),
+        ("an empty value", "run", ["--frontend="], f"usage: {first}"),
+    ]:
+        cases.append((f"options: {what}", parsed(command, rest), want))
+    return cases
+
+
 def frontend_cases():
     """(what, got, want) for the layer's rule and for the app backend, from
     fake environments and answers of `hc` and `herdr-app`; nothing runs.
@@ -297,7 +703,8 @@ def frontend_cases():
     sessions listed, the list of the window's commands, `herdr-app do`'s
     `{"error": …}` with exit status 1, and the errors of `hc`, whose kinds
     `unavailable` and `name_taken` are named in `hc schema`, with their exit
-    statuses and messages."""
+    statuses and messages. What the autopilot's cases record and stand in for
+    is in `app_autopilot_cases`."""
     cases = []
     app, tui = frontend.load("app"), frontend.load("tui")
     for name in frontend.FRONTENDS:
@@ -306,16 +713,15 @@ def frontend_cases():
         print(f"{name}: has " + ("every operation" if not lacks else ", ".join(has)) +
               (f"; lacks {', '.join(lacks)}" if lacks else ""))
     cases.append(("the tui backend lacks no operation", frontend.lacking(tui), []))
-    open_session_needs = {"missing", "answers", "shows", "find_session", "focus_session", "open_session"}
-    cases.append(("the app backend has what open-session needs",
-                  sorted(open_session_needs & set(frontend.lacking(app))), []))
-    frontend.use("app")
+    cases.append(("the app backend lacks no operation", frontend.lacking(app), []))
+    saved = frontend.backend
+    frontend.backend = types.ModuleType("frontend.stand_in")
     try:
-        cases.append(("an operation the app backend lacks fails with a message",
+        cases.append(("an operation a backend lacks fails with a message",
                       outcome(frontend.find_space, "payload"),
-                      "failed: the app front end does not offer find_space yet"))
+                      "failed: the stand_in front end does not offer find_space yet"))
     finally:
-        frontend.use("tui")
+        frontend.backend = saved
 
     var = frontend.FRONTEND_ENV
     not_installed = "failed: the {} front end is not installed ({}): {}-program not found in PATH"
@@ -436,11 +842,21 @@ def frontend_cases():
           "payload runs as t9, and the app's window is not there to show it\n", None)
 
     cases.extend(core_cases(app))
+    cases.extend(app_autopilot_cases(app))
 
-    forbidden = re.compile(r"^hc (send|keys|attach|get|read|label|kill|rm)\b|--force")
+    forbidden = re.compile(r"^hc (send|keys|attach|get|read|label|kill|rm|wait)\b|--force")
     ran = [line for what, got, _ in cases if what.startswith("app: ") for line in got[0]]
-    cases.append(("the app backend never types into a terminal, reads one or forces",
+    cases.append(("opening a session by hand never types into a terminal, reads one, ends one or forces",
                   [line for line in ran if forbidden.search(line)], []))
+    never = re.compile(r"^hc (send|keys|attach|label|server)\b|--force")
+    ran = [line for what, got, _ in cases if what.startswith(("app: ", "app autopilot: ")) for line in got[0]]
+    cases.append(("the app backend never sends, presses keys, attaches, labels, touches the server or forces",
+                  [line for line in ran if never.search(line)], []))
+    cases.append(("the app backend runs hc get only for the one terminal, as JSON",
+                  [line for line in ran if line.startswith("hc get") and not re.fullmatch(r"hc get t\d+ --json", line)],
+                  []))
+    cases.extend(stand_in_cases(tui))
+    cases.extend(pilot_flow_cases())
     return cases
 
 
@@ -480,19 +896,12 @@ def self_test():
     failed_plugins = [c for c in plugin_cases if org_plugins(c[0]) != c[1]]
     for settings, want in failed_plugins:
         print(f"FAIL org_plugins {settings!r}: want {want!r}, got {org_plugins(settings)!r}")
-    layer_cases = [
-        ("the autopilot is pinned to the tui backend", frontend.backend.__name__ == "frontend.tui"),
-        ("the tui backend has every operation the layer defines", not frontend.lacking(frontend.backend)),
-    ]
-    failed_layer = [c for c in layer_cases if not c[1]]
-    for what, _ in failed_layer:
-        print(f"FAIL {what}: lacking {', '.join(frontend.lacking(frontend.backend)) or 'nothing'}")
     frontend_results = frontend_cases()
     failed_frontend = [c for c in frontend_results if c[1] != c[2]]
     for what, got, want in failed_frontend:
         print(f"FAIL {what}:\n  want {want!r}\n  got  {got!r}")
-    total = len(cases) + len(plugin_cases) + len(layer_cases) + len(frontend_results)
-    failures = len(failed) + len(failed_plugins) + len(failed_layer) + len(failed_frontend)
+    total = len(cases) + len(plugin_cases) + len(frontend_results)
+    failures = len(failed) + len(failed_plugins) + len(failed_frontend)
     print(f"{total - failures}/{total} passed")
     return not failures
 
@@ -560,6 +969,7 @@ def finish(d, repo, worker, dry):
         return False
     if dry:
         log(f"{repo}#{n}: {reason}; would close tab {worker.tab}")
+        frontend.close_tab(worker.tab, dry=True)
     else:
         frontend.close_tab(worker.tab)
         log(f"{repo}#{n}: {reason}; tab closed")
@@ -607,12 +1017,15 @@ def launch(d, repo, space, session, n, dry):
         return False
     args = ["--permission-mode", "auto", "--settings", str(WORKTREES / ".hooks.json"),
             "-n", session, "-w", session, f"/0xc0:work-issue {repo}#{n}"]
+    command = shlex.join(["claude", *args])
+    # The 0xc0 plugin's SessionStart hook skips the board read on it (#130).
+    env = {"OXC0_AUTOPILOT": "1"}
     if dry:
-        log(f"{repo}#{n}: would start, in {d}: {shlex.join(['claude', *args])}")
+        log(f"{repo}#{n}: would start, in {d}: {command}")
+        frontend.start_session(space, session, d, command, env, dry=True)
         return True
     worktree_settings()
-    # The 0xc0 plugin's SessionStart hook skips the board read on it (#130).
-    frontend.start_session(space, session, d, shlex.join(["claude", *args]), {"OXC0_AUTOPILOT": "1"})
+    frontend.start_session(space, session, d, command, env)
     log(f"{repo}#{n}: started {session}")
     return True
 
@@ -917,31 +1330,85 @@ def loop(d, dry):
         seen = restart_if_changed(seen, launched)
 
 
-def toggle(d):
-    tab = frontend.pilot(session_name(d.name))
-    if tab:
+FRONTEND_NAMES = {"tui": "the TUI", "app": "the app"}
+
+
+def options(command, rest):
+    """(dry run, front end asked for) from what follows the repo; ends with
+    the usage when something else does."""
+    dry, asked, rest = False, None, list(rest)
+    while rest:
+        arg = rest.pop(0)
+        if arg == "--dry-run" and command == "run":
+            dry = True
+        elif arg.startswith("--frontend="):
+            asked = arg.partition("=")[2]
+        elif arg == "--frontend" and rest:
+            asked = rest.pop(0)
+        else:
+            sys.exit(USAGE)
+    if asked == "":
+        sys.exit(USAGE)
+    return dry, asked
+
+
+def pilots(name, picked, ask=frontend.ask):
+    """Where the repo's pilot is: a (front end, tab) for each front end that
+    has one, looking in the one picked, whether or not it answers, and in every
+    other that answers. Leaves in use whichever it looked in last."""
+    found = []
+    for where in frontend.answering(picked, ask):
+        frontend.use(where)
+        tab = frontend.pilot(name)
+        if tab:
+            found.append((where, tab))
+    return found
+
+
+def alive(where, tab):
+    frontend.use(where)
+    return frontend.pilot_alive(tab)
+
+
+def elsewhere(where, picked):
+    """What a message adds when the pilot is not in the front end picked."""
+    return "" if where == picked else f" (in {FRONTEND_NAMES[where]})"
+
+
+def toggle(d, picked, ask=frontend.ask):
+    found = pilots(session_name(d.name), picked, ask)
+    for where, tab in found:
+        frontend.use(where)
         frontend.close_tab(tab)
-        print(f"{d.name}: autopilot off")
-    else:
+        print(f"{d.name}: autopilot off{elsewhere(where, picked)}")
+    if not found:
+        frontend.use(picked)
         turn_on(d)
 
 
-def state(d):
-    """on, dead (the tab is there, the loop is not) or off."""
-    tab = frontend.pilot(session_name(d.name))
-    if tab is None:
-        return "off"
-    return "on" if frontend.pilot_alive(tab) else "dead"
+def state(d, picked, ask=frontend.ask):
+    """on, dead (the tab is there, the loop is not) or off, in any front end
+    that answers: on wins over dead."""
+    found = pilots(session_name(d.name), picked, ask)
+    if any(alive(where, tab) for where, tab in found):
+        return "on"
+    return "dead" if found else "off"
 
 
-def start(d):
-    tab = frontend.pilot(session_name(d.name))
-    if tab and frontend.pilot_alive(tab):
-        print(f"{d.name}: autopilot already on")
-        return
-    if tab:
+def start(d, picked, ask=frontend.ask):
+    """Turns the autopilot on in the front end picked, unless one is on in
+    any front end that answers: a repo never has two."""
+    found = pilots(session_name(d.name), picked, ask)
+    for where, tab in found:
+        if alive(where, tab):
+            print(f"{d.name}: autopilot already on{elsewhere(where, picked)}")
+            return
+    for where, tab in found:
+        frontend.use(where)
         frontend.close_tab(tab)
-        print(f"{d.name}: autopilot was dead; restarting")
+    if found:
+        print(f"{d.name}: autopilot was dead{elsewhere(found[0][0], picked)}; restarting")
+    frontend.use(picked)
     turn_on(d)
 
 
@@ -957,21 +1424,25 @@ def main(argv):
     if argv == ["--self-test"]:
         sys.exit(0 if self_test() else 1)
     if len(argv) < 2 or argv[0] not in ("run", "start", "toggle", "state", "prepare"):
-        sys.exit(__doc__.strip().split("\n\n")[1])
+        sys.exit(USAGE)
     d = Path(os.path.normpath(ROOT / argv[1]))
     if not (d.parent == ROOT and re.fullmatch(r"[A-Za-z0-9._-]+", d.name)
             or argv[0] == "prepare" and d == ROOT):
         sys.exit(f"autopilot: {d} is not a repo of the workspace")
     if argv[0] == "prepare":
         prepare(d)
-    elif argv[0] == "run":
-        loop(d, "--dry-run" in argv[2:])
+        return
+    dry, asked = options(argv[0], argv[2:])
+    picked = frontend.choose(asked)
+    if argv[0] == "run":
+        frontend.use(picked)
+        loop(d, dry)
     elif argv[0] == "start":
-        start(d)
+        start(d, picked)
     elif argv[0] == "toggle":
-        toggle(d)
+        toggle(d, picked)
     else:
-        print(state(d))
+        print(state(d, picked))
 
 
 if __name__ == "__main__":

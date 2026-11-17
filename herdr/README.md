@@ -6,7 +6,9 @@ orchestrator. Another turns a repo's autopilot on or off: the autopilot
 works the repo's Ready issues, one fresh session per issue, each in its own
 tab and worktree, and turns itself off when nothing is left
 (`docs/design/how-we-work.md`). The orchestrator starts it with
-`bin/autopilot start <repo>` after it sets issues Ready.
+`bin/autopilot start <repo>` after it sets issues Ready. Both run in Herdr's
+terminal app (the TUI) or in its desktop app, whichever is in use (Which front
+end, below).
 
 Herdr also runs one third-party plugin the workspace installs, the file
 viewer (File viewer, below).
@@ -15,8 +17,9 @@ viewer (File viewer, below).
 
 `bin/autopilot start <repo>`, or picking a repo from the key, gives the
 repo's Herdr workspace an `autopilot` tab running `bin/autopilot run <repo>`,
-which logs a line for everything it does. It first gets the repo's clone
-ready, as `bin/autopilot prepare <repo>` does:
+which logs a line for everything it does. In the desktop app that tab is a
+terminal of the app's core (The autopilot in the app, below). It first gets
+the repo's clone ready, as `bin/autopilot prepare <repo>` does:
 
 - it clones the repo into the workspace if it is missing. The clone stays:
   its path holds every worktree session's plugin records, memory and
@@ -123,7 +126,9 @@ deleted file no longer dies on it.
 
 `bin/autopilot state <repo>` prints `on` only when the loop is running in its
 tab, `dead` when the tab is there and the loop exited, and `off` without the
-tab. `start` closes a dead tab and opens a new one.
+tab. `start` closes a dead tab and opens a new one. It looks in every front end
+that answers, not only the one in use: `on` anywhere is `on`, and `start` then
+starts nothing, since a repo never has two autopilots (Where it runs, below).
 
 `autopilot.conf` holds each repo's slots: two in the application repos and
 in `packages`, one in the others. Picking the repo again, or closing the
@@ -137,7 +142,143 @@ hourly 5,000, made only when a slot is free. Below 500 points left, it starts
 nothing until the budget resets.
 
 `bin/autopilot run <repo> --dry-run` prints one round, what it would close,
-remove and start, changing nothing.
+remove and start, changing nothing; with the app, the `hc` commands it would
+run to start a session and to end one, and the window's commands that would
+name them. It still reads the board once, and the sessions, and the answer of
+`hc read` for a session at rest, whose text goes to the search for the last
+line and nowhere else.
+
+### Where it runs
+
+The front end is the one `open-session` takes, by the same rule (Which front
+end, below): `--frontend tui|app`, else `OXC0_HERDR_FRONTEND`, else the one the
+script runs in, else the app if its window answers. `run`, `start`, `toggle`
+and `state` take the option. A pilot's loop is told its front end when it is
+started, so the rule does not decide it again where it runs: in the app
+through `env OXC0_HERDR_FRONTEND=app` in its terminal's command, in the TUI
+through `--frontend tui` in the command typed into its pane. Its sessions open
+where the loop runs, and it restarts itself with the same arguments.
+
+`start`, `toggle` and `state` look for the pilot in the front end picked and
+in every other that answers (the TUI's server, the app's core) before acting,
+and never start a server that is not running to ask: no `hc` command is run
+for a front end that was not picked until its core's socket accepted a
+connection. A pilot found in another front end than the one picked is
+reported there, `payload: autopilot already on (in the app)`, or turned off
+there by `toggle`, and `start` starts none while one is on anywhere. A dead
+one in any front end is closed, and `start` starts a new one in the front end
+picked. With only the TUI in use nothing changes: the same calls to `herdr`,
+the same lines.
+
+### The autopilot in the app
+
+The pilot's loop, and each session it starts, are terminals of the app's core,
+found by labels of ours (`oxc0.space=<name>`, `oxc0.role`), as the sessions
+opened by hand are (In the app, below):
+
+| Terminal | `--name` | `herdr.tab` | Labels of ours |
+|---|---|---|---|
+| a repo's session, opened by hand | `<name>` | `oxc0-<name>` | `oxc0.space=<name>`, `oxc0.role=session` |
+| a pilot's session | `<name>-<n>` | `oxc0-<name>-<n>` | `oxc0.space=<name>`, `oxc0.role=worker`, `oxc0.issue=<n>` |
+| a pilot's loop | `<name>-autopilot` | `oxc0-<name>-autopilot` | `oxc0.space=<name>`, `oxc0.role=autopilot` |
+
+Everything of one repo carries `herdr.space=oxc0-<name>`, which puts it in one
+space of the app. When the window answers (`herdr-app status` exits 0), the
+space is named `<name>` and the tabs `<name>-<n>` and `autopilot`, as in the
+TUI; when it does not, they still start, with the space and the tab unnamed
+and nothing else different. Each is made in the background, with no parent
+and no notes (`--no-parent --no-notify`), so the focus does not move:
+
+```sh
+hc run --bg --keep --no-parent --no-notify --json --name <name>-<n> --cwd <repo's directory> \
+  --label herdr.space=oxc0-<name> --label herdr.tab=oxc0-<name>-<n> \
+  --label oxc0.space=<name> --label oxc0.role=worker --label oxc0.issue=<n> \
+  -- env OXC0_AUTOPILOT=1 claude --permission-mode auto --settings <workspace>/.worktrees/.hooks.json \
+     -n <name>-<n> -w <name>-<n> "/0xc0:work-issue <repo>#<n>"
+
+hc run --bg --no-parent --no-notify --json --name <name>-autopilot --cwd <cwd> \
+  --label herdr.space=oxc0-<name> --label herdr.tab=oxc0-<name>-autopilot \
+  --label oxc0.space=<name> --label oxc0.role=autopilot \
+  -- env OXC0_HERDR_FRONTEND=app <workspace>/herdr/bin/autopilot run <repo's directory>
+```
+
+The arguments run as given, with no shell in between, and the core gives a
+terminal its own environment, not the caller's: that is why the variables go
+through `env`. A session has `--keep`, so that the core never runs its command
+again by itself, which would start a new conversation; a loop has none, since a
+loop run again reads the board and the sessions and goes on. Neither has
+`--rm`: what is left of a terminal that ended is what the pilot reads.
+
+A session's state comes from the core, from `hc ls --all` filtered by the
+labels, and is read at every round:
+
+| The row says | The session is |
+|---|---|
+| `state: "finished"` | ended: its program left (`reason` `exited` or `killed`, with `exit_code`): handled as "its session exited" |
+| `live`, no `status` yet | starting: busy, unless a shell took its program's place (below): then ended |
+| `live`, `turn` 0, any `status` | busy. Claude Code reports `idle` once before it takes its prompt |
+| `live`, `turn` 1 or more, `status` `idle` or `done` | at rest: its last lines are read, and the session is closed if one is its last line |
+| `live`, anything else | busy. A session stopped at a question of Claude Code's (`blocked`, as at "trust this folder") is busy: the operator's to answer, never the pilot's |
+
+The first row's exception is the one `hc ls` cannot show. `hc run --help` says
+`--keep` replaces lost programs with a shell in place, and `hc schema` says
+the new shell never reports; its row is `live` and stays with no `status`,
+like a session still starting. `hc ls` does not say what runs in front, but
+`hc get` does, in `foreground`: for a session that reports nothing, the pilot
+asks `hc get` and takes the session as ended when the command line in front
+is neither Claude Code's, which carries the name the session was given
+(`-n <name>`), nor `env`, which is it for a moment before it becomes it. That
+is the one place the pilot runs `hc get`: it drops the answer's `screen`, the
+terminal's whole text, as it reads it. No test could reach it, because it takes
+restarting the core: the self-test holds a stand-in for that answer, built from
+`hc schema`.
+
+A session ends in this order: its screen is read (`hc read <t> --json --lines
+80`, whose `text` goes to the search for the last line and nowhere else: a
+killed terminal answers an incomplete screen), then `hc kill <t>`, `hc wait <t>
+--timeout 10 --json`, which ends when the terminal does and never waits for ever,
+and `hc rm <t>`, which takes a finished terminal only. The app closes the tab
+when the terminal ends. A session whose program was gone is killed and
+removed all the same, and one already finished is removed. No finished
+session stays in the core. The pilot never types into a terminal: no
+`hc send`, `hc keys` or `hc attach`, and nothing with `--force`.
+
+A pilot's state, from `hc ls --all` filtered by `oxc0.role=autopilot`:
+
+| The core has | `state` prints | What `start` and `toggle` do first |
+|---|---|---|
+| a live loop | `on` | `toggle`: `hc kill`, then `hc rm` |
+| none live, a finished one that exited with 0 | `off` | `hc rm` it |
+| none live, a finished one with another exit code, or none | `dead` | `hc rm` it |
+| none | `off` | |
+
+A loop that ends because nothing is left exits 0: its tab closes by itself,
+and the next `state`, `start` or `toggle` removes what is left of it. A loop
+that died leaves its last lines and exit code in the core until then, so read
+them first:
+
+```sh
+hc read <name>-autopilot --lines 80
+```
+
+`start` on a dead pilot then removes it and starts a new loop, printing
+`<repo>: autopilot was dead; restarting`.
+
+What a restart of the core does to them, as far as `hc`'s help and `hc schema`
+say, since it ends the operator's sessions and none was tried:
+
+- `hc server restart`, after an update: "programs keep running" and the next
+  core adopts them. The pilot and its sessions go on.
+- `hc server stop`: "stops the core and its programs. Kept terminals remain
+  pending and get new shells when the core next starts". The sessions, which
+  are kept, come back as a shell each, `live` with nothing in front and
+  nothing reported: the pilot ends them as above. The loop is not kept: it
+  ends with the core, `state` says `dead` or `off` by its exit code, and
+  `start` is what brings it back, as after the TUI's server stops. A worktree
+  with unpushed work stays.
+- The core or a program lost: a kept terminal is replaced by a shell after a
+  grace delay, one that is not kept finishes with a `reason` (`holder_lost`,
+  `signaled`), so a loop is `dead` and a session a shell again.
 
 ## Opening a session by hand
 
@@ -154,7 +295,8 @@ Herdr is two products with no shared base: the terminal app (`herdr`, the
 TUI), which has its own server, and the desktop app (`herdr-app`), a client of
 `herdr-core` that runs every terminal it shows, driven with `hc`. What runs in
 one does not show up in the other. `bin/open-session <dir>` opens the session
-in the front end in use, picked by the first rule that applies:
+in the front end in use, and `bin/autopilot` runs its loop and its sessions in
+it (Autopilot, above), picked by the first rule that applies:
 
 1. The one asked for: `--frontend tui|app`, or `OXC0_HERDR_FRONTEND=tui|app`.
    The option wins over the variable.
@@ -235,8 +377,10 @@ the operator opened without it, the operator adopts it with
 `hc label <terminal> oxc0.space=<name> oxc0.role=session`; the script never
 does it.
 
-Nothing here types into a terminal or reads its screen: no `hc send`,
-`hc keys`, `hc attach`, `hc get` or `hc read`, and nothing with `--force`.
+Opening a session types into no terminal and reads no screen: no `hc send`,
+`hc keys`, `hc attach`, `hc get` or `hc read`, and nothing with `--force`. The
+autopilot reads a session's screen only as The autopilot in the app, above,
+says.
 
 ## Models
 
@@ -408,21 +552,26 @@ lib/frontend/app.py       the backend for Herdr's desktop app: every call to
 The two scripts never run `herdr`, `hc` or `herdr-app`: they ask
 `lib/frontend/`, in terms of spaces, tabs and sessions, and its backend
 translates them: `tui` into `herdr`'s workspaces, tabs and agents, `app` into
-the core's terminals and the window's spaces and tabs. `open-session` takes
-the backend by the rule in Opening a session by hand. The autopilot takes
-`tui` whichever front end the rule would pick, and `app` has only what
-`open-session` needs: the autopilot's operations come next
-(0xc0-labs/workspace#231). Asking a backend for an operation it lacks fails
-with a message.
+the core's terminals and the window's spaces and tabs. Both scripts take the
+backend by the rule in Opening a session by hand, and each backend has every
+operation they use. Asking a backend for an operation it lacks fails with a
+message.
 
 `bin/open-session <dir> --dry-run`, with either `--frontend`, prints what it
-would do, touching nothing. `bin/autopilot --self-test` checks the rule, where
-the app's core socket is looked for and whether it answers (on a temporary
-socket), and the app backend reading the answers of `hc` and `herdr-app`, with
-no Herdr running; it also says what each backend has. Of those answers, the
-`hc ls` ones, `hc run`'s and `herdr-app do`'s `{"ok": true}` were recorded from
-the real programs; the others (two sessions listed, the window's list of
-commands, the errors) are stand-ins of the documented shape. Both
-scripts need `python3`, from the OS: they are written in it, with its standard
-library alone. The autopilot runs `gh` through mise, from the workspace's
-`mise.toml`.
+would do, touching nothing, and so does `bin/autopilot run <repo> --dry-run`.
+`bin/autopilot --self-test` checks the rule, where the app's core socket is
+looked for and whether it answers (on a temporary socket), the app backend
+reading the answers of `hc` and `herdr-app`, and the autopilot's flow of
+`start`, `toggle` and `state` over stand-in backends, with no Herdr running; it
+also says what each backend has. Of those answers, the rows of `hc ls`, the
+answers of `hc run`, `hc rm`, `hc wait` and `hc read` (`{"complete": true,
+"how": "stitched", "text": …}`), the fields of `hc get` (including
+`foreground`) and `herdr-app do`'s `{"ok": true}` were recorded from the real
+programs (0xc0-labs/workspace#226, #231); the last line of a session is found
+in a recorded answer of `hc read`. The others are stand-ins of the documented
+shape, from `hc schema` and each command's help: the `hc get` of a session
+left as a shell, which takes restarting the core, the answer of `hc kill`,
+which the backend does not read, the window's list of commands and the
+errors. Both scripts need `python3`, from the OS: they are written in it, with its
+standard library alone. The autopilot runs `gh` through mise, from the
+workspace's `mise.toml`.

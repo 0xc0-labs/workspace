@@ -154,11 +154,14 @@ def read_screen(session):
     return run(HERDR, "agent", "read", session.agent["pane_id"], "--source", "recent-unwrapped", "--lines", "80")
 
 
-def close_tab(tab):
-    herdr("tab", "close", tab.id)
+def close_tab(tab, dry=False):
+    if not dry:
+        herdr("tab", "close", tab.id)
 
 
-def start_session(space, name, directory, command, env):
+def start_session(space, name, directory, command, env, dry=False):
+    if dry:
+        return
     pane = herdr("tab", "create", "--workspace", space.id, "--cwd", str(directory),
                  "--label", name, "--no-focus",
                  *[arg for key, value in env.items() for arg in ("--env", f"{key}={value}")])["root_pane"]["pane_id"]
@@ -189,7 +192,9 @@ def start_pilot(name, directory, command):
         created = herdr("workspace", "create", "--cwd", str(directory), "--label", name, "--no-focus", *env)
         herdr("tab", "rename", created["tab"]["tab_id"], TAB)
         pane = created["root_pane"]["pane_id"]
-    run(HERDR, "pane", "run", pane, command)  # prints nothing on success, unlike the rest
+    # Prints nothing on success, unlike the rest. The loop is told its front
+    # end, not left to the rule: its pane's environment may say another.
+    run(HERDR, "pane", "run", pane, f"{command} --frontend tui")
 
 
 def is_own_tab(tab):
