@@ -41,6 +41,7 @@ import time
 from pathlib import Path
 
 ORG = "0xc0-labs"
+MARKETPLACE = "0xc0-labs"
 BOARD = 1
 INTERVAL = 60
 TAB = "autopilot"
@@ -205,8 +206,27 @@ def self_test():
     failed = [c for c in cases if find_last_line(c[0], c[1], c[2]) != c[3]]
     for repo, n, screen, want in failed:
         print(f"FAIL {repo}#{n} {screen!r}: want {want!r}, got {find_last_line(repo, n, screen)!r}")
-    print(f"{len(cases) - len(failed)}/{len(cases)} passed")
-    return not failed
+    enabled = {"enabledPlugins": {
+        "0xc0@0xc0-labs": True,
+        "agent-skills@0xc0-labs": True,
+        "software-architecture@0xc0-labs": False,
+        "typescript-lsp@claude-plugins-official": True,
+        "terraform@hashicorp": True,
+        "0xc0@0xc0-labs-fork": True,
+    }}
+    plugin_cases = [
+        (enabled, ["0xc0@0xc0-labs", "agent-skills@0xc0-labs"]),
+        ({"enabledPlugins": {"0xc0@hashicorp": True, "0xc0@0xc0-labs": False}}, []),
+        ({"enabledPlugins": {}}, []),
+        ({}, []),
+    ]
+    failed_plugins = [c for c in plugin_cases if org_plugins(c[0]) != c[1]]
+    for settings, want in failed_plugins:
+        print(f"FAIL org_plugins {settings!r}: want {want!r}, got {org_plugins(settings)!r}")
+    total = len(cases) + len(plugin_cases)
+    passed = total - len(failed) - len(failed_plugins)
+    print(f"{passed}/{total} passed")
+    return not failed and not failed_plugins
 
 
 def clean_up(d, session, dry):
@@ -407,7 +427,9 @@ def round_(d, repo, name, launched, dry):
         log(f"{repo}: waiting, started before and unchanged since its session ended: "
             + ", ".join(f"#{n}" for n in left))
     if todo and dry:
-        log(f"{repo}: would update 0xc0")
+        settings = d / ".claude" / "settings.json"
+        would = org_plugins(json.loads(settings.read_text())) if settings.is_file() else []
+        log(f"{repo}: would update {', '.join(would) or 'no plugin'}")
     elif todo:
         update_plugin(d)
     for n in todo:
@@ -526,7 +548,7 @@ def claude_plugin(d, *args):
 
 def plugins(d):
     """Installs the plugins the repo enables that have no record for its path
-    (#106), then updates 0xc0."""
+    (#106), then updates the org's."""
     settings = d / ".claude" / "settings.json"
     installed = json.loads(run("claude", "plugin", "list", "--json", cwd=d))
     for plugin, on in json.loads(settings.read_text()).get("enabledPlugins", {}).items():
@@ -537,19 +559,27 @@ def plugins(d):
     update_plugin(d)
 
 
+def org_plugins(settings):
+    """The org's marketplace's plugins that a settings file enables."""
+    return [plugin for plugin, on in settings.get("enabledPlugins", {}).items()
+            if on is True and plugin.endswith(f"@{MARKETPLACE}")]
+
+
 def update_plugin(d):
-    """Updates 0xc0, which Claude Code would update only after a session had
-    started on the old one (#114): a session loads the install on disk when
-    it starts (#124)."""
+    """Updates every plugin of the org's marketplace the repo enables, which
+    Claude Code would update only after a session had started on the old one
+    (#114): a session loads the install on disk when it starts (#124), and
+    an autopilot's session lives for one issue (#221)."""
     settings = d / ".claude" / "settings.json"
     CACHE.mkdir(parents=True, exist_ok=True)
     # Several autopilots share one marketplace clone, ~/.claude/plugins/marketplaces/0xc0-labs, and concurrent updates break it (#132).
     with open(CACHE / "plugin-update.lock", "a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         before = settings.read_text()
-        if not marketplace_fresh() and claude_plugin(d, "marketplace", "update", "0xc0-labs"):
+        if not marketplace_fresh() and claude_plugin(d, "marketplace", "update", MARKETPLACE):
             MARKETPLACE_STAMP.touch()
-        claude_plugin(d, "update", "0xc0@0xc0-labs")
+        for plugin in org_plugins(json.loads(before)):
+            claude_plugin(d, "update", plugin)
         after = settings.read_text()
         if after != before and json.loads(after) == json.loads(before):
             settings.write_text(before)  # a project-scope update rewrites it with its keys reordered

@@ -25,8 +25,9 @@ ready, as `bin/autopilot prepare <repo>` does:
   has and with nothing uncommitted. A branch origin still has, or uncommitted
   work, is someone's: it leaves it and says so;
 - it installs the plugins the repo enables that have no record for its path,
-  and updates `0xc0`, which Claude Code would otherwise update only after a
-  session had started on the old one;
+  and updates each one of the org's marketplace (`@0xc0-labs`) that its
+  `.claude/settings.json` enables, which Claude Code would otherwise update
+  only after a session had started on the old one;
 - it trusts the clone in Claude Code, as accepting "Do you trust the files
   in this folder?" there would: `hasTrustDialogAccepted` for its path in
   `~/.claude.json`, or `$CLAUDE_CONFIG_DIR/.claude.json`. A repo the org
@@ -71,11 +72,12 @@ Then, every minute, it:
    the session is not started in that round and the next retries it. The
    `work-issue` skill keeps its own claim step for sessions started by hand.
 
-   A round that starts a session updates `0xc0` first, once: a session
-   loads the plugin on disk when it starts, and Claude Code's own update
-   reaches only the next session (#124). Autopilots take turns at it
-   under a lock in `~/.cache/0xc0/`, and skip the marketplace update when
-   another did it under two minutes ago (#132).
+   A round that starts a session updates first, once, each plugin of the
+   org's marketplace that the repo enables, not only `0xc0`: a session loads
+   its plugins on disk when it starts and lives for one issue, and Claude
+   Code's own update reaches only the next session (#124, #221). Autopilots
+   take turns at it under a lock in `~/.cache/0xc0/`, and skip the
+   marketplace update when another did it under two minutes ago (#132).
 
    Auto mode lets the session work unattended: a classifier approves
    routine commands and blocks risky ones, and the repo's `deny` rules
