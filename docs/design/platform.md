@@ -218,10 +218,10 @@ admin. It replaces the one multi-tenant Payload instance (operator decision,
 2026-10-09; workspace#64), the backend of several fronts through Payload's
 multi-tenant plugin: a client who buys a site cannot manage Payload's admin,
 and Strapi's is friendlier and can be branded. The multi-tenant Payload is
-[discarded](../discarded.md). `artistlabco.com`'s is the first Strapi, due
-before ARTIST LAB's launch on 1 November. A site's front calls
-its Strapi inside the cluster, as its BFF ([delivery](delivery.md)), with an
-API token: Strapi's public role grants nothing, and the API is never public.
+[discarded](../discarded.md). `artistlabco.com`'s is the first Strapi
+(0xc0-labs/workspace#202). A site's front calls its Strapi inside the
+cluster, as its BFF ([delivery](delivery.md)), with an API token: Strapi's
+public role grants nothing, and the API is never public.
 Only the uploaded files are public, from R2, and the admin: the public
 hostname serves the admin alone, at `cms.<site domain>` in prod and
 `cms-staging.<site domain>` in staging, behind a Cloudflare Access

@@ -237,9 +237,13 @@ build, never its users. The backend changes by expand and contract: it adds
 (a minor) and deploys, the frontends adopt, and it removes (a breaking
 release) only once no deployed frontend uses what goes.
 `@0xc0-labs/payload-types` and `@0xc0-labs/payload-client` are retired
-with Payload (operator decision, 2026-10-20; workspace#203).
+with Payload (operator decision, 2026-10-20; workspace#203). No repo is such
+a backend today: what published the contract left the release workflows with
+Payload (0xc0-labs/.github#189), and the first backend in a repo of its own
+brings the publishing and the order checks back.
 
-**CI enforces the order between a frontend and a backend of another repo:**
+**CI must enforce the order between a frontend and a backend of another
+repo:**
 
 1. A frontend release cannot depend on a prerelease of the contract, so the
    backend always reaches prod first.
