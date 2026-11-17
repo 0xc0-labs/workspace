@@ -180,7 +180,8 @@ def open_session(name, directory, args, dry=False):
 @operation
 def find_space(name):
     """The space with this name, or None. A round looks it up once and hands
-    it to `workers` and `start_session`."""
+    it to `workers` and `start_session`. A front end whose spaces exist as soon
+    as a session carries their name has one always."""
 
 
 @operation
@@ -194,30 +195,38 @@ def workers(space, dry=False):
 @operation
 def session_state(session):
     """ENDED, AT_REST or BUSY. A session just started, that the front end has
-    not detected yet, is BUSY."""
+    not detected yet, is BUSY. ENDED is a program that is gone, whether the
+    terminal finished or a shell took its place."""
 
 
 @operation
 def read_screen(session):
-    """The last 80 lines its terminal shows, as text."""
+    """The last 80 lines its terminal shows, as text. The caller looks for the
+    session's last line in it and keeps none of it."""
 
 
 @operation
-def close_tab(tab):
-    """Closes the tab, and its session with it."""
+def close_tab(tab, dry=False):
+    """Closes the tab, and its session with it, leaving nothing of it in the
+    front end. A session's screen is read before this, never after. With `dry`,
+    changes nothing and prints what it would run, if the front end has
+    commands to show."""
 
 
 @operation
-def start_session(space, name, directory, command, env):
+def start_session(space, name, directory, command, env, dry=False):
     """Starts `command`, a command line, in `directory`, with the variables of
     the dict `env` in its environment, in a new tab called `name` of the
     space, not in front of the operator. The command is part of creating the
-    session: nothing is typed into it afterwards."""
+    session: nothing is typed into it afterwards. With `dry`, changes nothing
+    and prints what it would run, if the front end has commands to show."""
 
 
 @operation
 def pilot(name):
-    """The tab of the autopilot of the space called `name`, or None."""
+    """The tab of the autopilot of the space called `name`, or None. A front
+    end that keeps the tab of a loop that ended on its own removes it here and
+    answers None."""
 
 
 @operation
@@ -227,11 +236,14 @@ def pilot_alive(tab):
 
 @operation
 def start_pilot(name, directory, command):
-    """Starts `command`, a command line, in `directory`, in a new tab of the
-    space called `name`, created if there is none, not in front of the
-    operator: the autopilot's, for the front end to find with `pilot`."""
+    """Starts `command`, the autopilot's own command line, in `directory`, in
+    a new tab of the space called `name`, created if there is none, not in
+    front of the operator: the autopilot's, for the front end to find with
+    `pilot`. The front end tells the loop which front end it lives in."""
 
 
 @operation
 def is_own_tab(tab):
-    """Whether this very process runs in the tab."""
+    """Whether this very process runs in the tab, which it must then close
+    when it turns itself off. A front end whose terminal ends with the loop,
+    and its tab with it, answers False."""

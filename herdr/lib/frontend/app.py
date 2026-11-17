@@ -1,11 +1,13 @@
 """The `app` backend: Herdr's desktop app, a client of the herdr-core that runs
-every terminal it shows. A session is a core terminal, made and found with `hc`
-by the labels of README.md (Opening a session by hand); the window, which
-only names and focuses it, is driven with `herdr-app`. Nothing here types into
-a terminal or reads its screen, and no other file runs `hc` or `herdr-app`.
+every terminal it shows. A session, a pilot's session and a pilot's loop are
+core terminals, made and found with `hc` by the labels of README.md (In the
+app); the window, which only names and focuses them, is driven with
+`herdr-app`. No other file runs `hc` or `herdr-app`.
 
-Only what `bin/open-session` asks of the layer is here: the other operations
-fail with a message until the autopilot needs them."""
+Nothing here types into a terminal: no `hc send`, `hc keys` or `hc attach`, and
+nothing with `--force`. A terminal's screen is its whole text, so `hc get`'s is
+dropped as its answer is read, and `hc read`'s goes to the caller and nowhere
+else: no message here carries one."""
 import json
 import os
 import re
@@ -17,19 +19,39 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import Failed
+from . import AT_REST, BUSY, ENDED, FRONTEND_ENV, Failed, Worker
 
 HC = "hc"
 HERDR_APP = "herdr-app"
 WINDOW_COMMANDS = {"space.rename": ("id", "name"), "tab.rename": ("id", "name"), "agent.focus": ("terminal",)}
 ATTEMPTS = 20
 PAUSE = 0.25
+WAIT = 10
+LINES = 80
+PILOT = "autopilot"
+
+
+@dataclass
+class Space:
+    name: str
 
 
 @dataclass
 class Session:
     address: str
     name: str
+    row: dict = None
+
+
+@dataclass
+class Tab:
+    """A terminal the autopilot closes or looks for: `live` as `hc ls` said it."""
+    address: str
+    name: str
+    live: bool
+
+    def __str__(self):
+        return self.address
 
 
 def call(*command):
@@ -58,11 +80,13 @@ def run(*command):
     return p.stdout
 
 
-def parse(text, what):
+def parse(text, what, private=False):
+    """The JSON `text` holds. A `private` answer may be a terminal's text: an
+    error about it says nothing of it."""
     try:
         return json.loads(text)
     except ValueError:
-        raise Failed(f"{what}: its answer is not JSON: {text[:80]!r}") from None
+        raise Failed(f"{what}: its answer is not JSON" + ("" if private else f": {text[:80]!r}")) from None
 
 
 def show(command):
@@ -136,16 +160,25 @@ def require():
                          "(`herdr-app commands` lists them): was it changed?")
 
 
-def find_session(name):
-    answer = parse(run(HC, "ls", "--label", f"oxc0.space={name}", "--label", "oxc0.role=session", "--json"),
-                   "hc ls")
+def listing(labels, finished):
+    """The rows of `hc ls` that carry all the `labels`, the finished ones too
+    when asked."""
+    command = [HC, "ls", *(["--all"] if finished else []),
+               *[arg for label in labels for arg in ("--label", label)], "--json"]
     try:
-        terminals = answer["terminals"]
-        if not terminals:
-            return None
-        addresses = [t["address"] for t in terminals]
+        rows = parse(run(*command), "hc ls")["terminals"]
+        if not all(isinstance(row, dict) and "address" in row for row in rows):
+            raise TypeError
     except (KeyError, TypeError):
         raise Failed("hc ls: its answer has no list of terminals") from None
+    return rows
+
+
+def find_session(name):
+    terminals = listing((f"oxc0.space={name}", "oxc0.role=session"), finished=False)
+    if not terminals:
+        return None
+    addresses = [t["address"] for t in terminals]
     if len(addresses) > 1:
         print(f"{name}: {len(addresses)} sessions carry its labels ({', '.join(addresses)}); "
               f"taking the first, {addresses[0]}")
@@ -164,22 +197,47 @@ def focus(address):
     run(HERDR_APP, "do", "agent.focus", "--terminal", address)
 
 
-def start_command(name, directory, args):
-    """The session's terminal. `--keep`, `--no-parent`, `--no-notify` and
-    `--rm` are why it is safe to leave unattended: README.md, Opening a session
-    by hand."""
-    space_and_tab = f"oxc0-{name}"
-    return [HC, "run", "--bg", "--keep", "--rm", "--no-parent", "--no-notify", "--json",
+def run_command(space, name, directory, program, role, flags, labels=()):
+    """The `hc run` that makes a terminal called `name` in the space called
+    `space`: `herdr.space` and `herdr.tab` place it in the app, and the labels
+    of ours are how it is found again. `--no-parent --no-notify`: started from
+    inside a terminal, a new terminal is otherwise that terminal's sub-agent,
+    ends with it, and has notes about it typed into it. README.md, In the app."""
+    return [HC, "run", "--bg", *flags, "--no-parent", "--no-notify", "--json",
             "--name", name, "--cwd", str(directory),
-            "--label", f"herdr.space={space_and_tab}", "--label", f"herdr.tab={space_and_tab}",
-            "--label", f"oxc0.space={name}", "--label", "oxc0.role=session",
-            "--", "claude", *args]
+            "--label", f"herdr.space=oxc0-{space}", "--label", f"herdr.tab=oxc0-{name}",
+            "--label", f"oxc0.space={space}", "--label", f"oxc0.role={role}",
+            *[arg for label in labels for arg in ("--label", label)],
+            "--", *program]
 
 
-def naming(name):
-    space_and_tab = f"oxc0-{name}"
-    return [[HERDR_APP, "do", kind, "--id", space_and_tab, "--name", name]
-            for kind in ("space.rename", "tab.rename")]
+def start_command(name, directory, args):
+    """A session opened by hand. `--keep` and `--rm` are why it is safe to leave
+    unattended: README.md, Opening a session by hand."""
+    return run_command(name, name, directory, ["claude", *args], "session", ["--keep", "--rm"])
+
+
+def naming(space, name, label):
+    """The window's commands that call the space `space` and the tab of the
+    terminal called `name` `label`."""
+    return [[HERDR_APP, "do", "space.rename", "--id", f"oxc0-{space}", "--name", space],
+            [HERDR_APP, "do", "tab.rename", "--id", f"oxc0-{name}", "--name", label]]
+
+
+def name_in_window(commands):
+    """Runs the window's `commands`, each retried until it answers: the window
+    shows a new terminal a moment after `hc run` returns. None when all
+    worked, else what the window last said."""
+    for command in commands:
+        p = call(*command)
+        for _ in range(ATTEMPTS - 1):
+            if p.returncode == 0:
+                break
+            time.sleep(PAUSE)
+            p = call(*command)
+        if p.returncode:
+            return explain(p)
+    return None
 
 
 def open_session(name, directory, args, dry=False):
@@ -187,12 +245,13 @@ def open_session(name, directory, args, dry=False):
     if window:
         require()
     start = start_command(name, directory, args)
+    rename = naming(name, name, name)
     if dry:
         show(start)
         if not window:
             print("# the app's window does not answer: nothing to name or focus")
             return
-        for command in naming(name):
+        for command in rename:
             show(command)
         show([HERDR_APP, "do", "agent.focus", "--terminal", "<new terminal>"])
         return
@@ -210,14 +269,166 @@ def open_session(name, directory, args, dry=False):
     if not window:
         print(f"{name} started as {session.address}, and the app's window was not there to name or show it")
         return
-    # The window shows a new terminal a moment after `hc run` returns.
-    for command in naming(name):
-        p = call(*command)
-        for _ in range(ATTEMPTS - 1):
-            if p.returncode == 0:
-                break
-            time.sleep(PAUSE)
-            p = call(*command)
-        if p.returncode:
-            raise Failed(f"{name} started as {session.address}, but the window did not show it: {explain(p)}")
+    why = name_in_window(rename)
+    if why:
+        raise Failed(f"{name} started as {session.address}, but the window did not show it: {why}")
     focus(session.address)
+
+
+def begin(start, rename, name, dry):
+    """Makes the terminal `start` describes, in the background, then names its
+    space and tab through the window when it answers. The terminal runs
+    whether or not the window names it: a window that does not show it is
+    said, not an error."""
+    window = shows()
+    if dry:
+        show(start)
+        if not window:
+            print("# the app's window does not answer: nothing to name")
+            return
+        for command in rename:
+            show(command)
+        return
+    answer = parse(run(*start), "hc run")
+    try:
+        address = answer["address"]
+    except (KeyError, TypeError):
+        raise Failed("hc run: its answer has no address") from None
+    why = name_in_window(rename) if window else None
+    if why:
+        print(f"{name} started as {address}, but the window did not show it to name it: {why}")
+
+
+def find_space(name):
+    return Space(name)
+
+
+def issue_of(space, name):
+    """The issue's number in a session's name, `<space>-<n>`; None if it has none."""
+    m = re.fullmatch(rf"{re.escape(space)}-(\d+)", name or "")
+    return int(m.group(1)) if m else None
+
+
+def live(row):
+    return row.get("state") != "finished"
+
+
+def workers(space, dry=False):
+    for row in listing((f"oxc0.space={space.name}", "oxc0.role=worker"), finished=True):
+        n = issue_of(space.name, row.get("name"))
+        if n is not None:
+            yield Worker(n, row["name"], Tab(row["address"], row["name"], live(row)),
+                         Session(row["address"], row["name"], row))
+
+
+def terminal(address):
+    """What `hc get` says of a terminal, without its screen, which is the
+    terminal's whole text: none of it is kept, not even in an error."""
+    answer = parse(run(HC, "get", address, "--json"), "hc get", private=True)
+    if not isinstance(answer, dict):
+        raise Failed("hc get: its answer is not a terminal")
+    answer.pop("screen", None)
+    return answer
+
+
+def left_as_shell(session):
+    """Whether a session that reports nothing has lost its program. `--keep`
+    puts a shell in its place (`hc run --help`), which never reports, so
+    without this it would be taken for a session still starting for ever.
+    What runs in front of the terminal tells: Claude Code's own command line
+    carries the name the session was given, and `env` is Claude Code a moment
+    before it becomes it. `hc get` has `foreground`, `hc ls` does not."""
+    argv = (terminal(session.address).get("foreground") or {}).get("argv") or []
+    return bool(argv) and session.name not in argv and os.path.basename(argv[0]) not in ("claude", "env")
+
+
+def session_state(session):
+    row = session.row
+    if not live(row):
+        return ENDED
+    status = row.get("status")
+    if not status:
+        # Nothing reported yet: starting, or no program left.
+        return ENDED if left_as_shell(session) else BUSY
+    # Claude Code reports `idle` once at turn 0, before it takes its prompt.
+    if (row.get("turn") or 0) >= 1 and status in ("idle", "done"):
+        return AT_REST
+    return BUSY
+
+
+def read_screen(session):
+    answer = parse(run(HC, "read", session.address, "--json", "--lines", str(LINES)), "hc read", private=True)
+    text = answer.get("text") if isinstance(answer, dict) else None
+    if not isinstance(text, str):
+        raise Failed("hc read: its answer has no text")
+    return text
+
+
+def remove(address):
+    """`hc rm`, which takes a finished terminal only; one already gone is as
+    good."""
+    try:
+        run(HC, "rm", address)
+    except Failed as e:
+        if "not_found" not in str(e):
+            raise
+
+
+def close_tab(tab, dry=False):
+    """The terminal's end: `hc kill` while it is live, `hc wait` until it is
+    finished, then `hc rm`. The app closes the tab with the terminal."""
+    kill = [HC, "kill", tab.address]
+    wait = [HC, "wait", tab.address, "--timeout", str(WAIT), "--json"]
+    if dry:
+        for command in (kill, wait) if tab.live else ():
+            show(command)
+        show([HC, "rm", tab.address])
+        return
+    if tab.live:
+        try:
+            run(*kill)
+        except Failed as e:
+            if "not_found" in str(e):
+                return
+            raise
+        ended = parse(run(*wait), "hc wait")
+        if not isinstance(ended, dict) or ended.get("ended") is not True:
+            raise Failed(f"{tab.name} did not end {WAIT} seconds after hc kill")
+    remove(tab.address)
+
+
+def start_session(space, name, directory, command, env, dry=False):
+    n = issue_of(space.name, name)
+    if n is None:
+        raise Failed(f"{name} is not a session of {space.name}: its name is {space.name}-<issue>")
+    program = [*(["env", *[f"{k}={v}" for k, v in env.items()]] if env else []), *shlex.split(command)]
+    start = run_command(space.name, name, directory, program, "worker", ["--keep"], [f"oxc0.issue={n}"])
+    begin(start, naming(space.name, name, name), name, dry)
+
+
+def pilot(name):
+    rows = listing((f"oxc0.space={name}", "oxc0.role=autopilot"), finished=True)
+    for row in rows:
+        if not live(row) and row.get("exit_code") == 0:
+            remove(row["address"])
+    left = [row for row in rows if live(row) or row.get("exit_code") != 0]
+    if not left:
+        return None
+    row = next((row for row in left if live(row)), left[0])
+    return Tab(row["address"], row.get("name") or f"{name}-{PILOT}", live(row))
+
+
+def pilot_alive(tab):
+    return tab.live
+
+
+def start_pilot(name, directory, command):
+    terminal_name = f"{name}-{PILOT}"
+    # The core gives a terminal its own environment, not the caller's.
+    program = ["env", f"{FRONTEND_ENV}=app", *shlex.split(command)]
+    start = run_command(name, terminal_name, directory, program, PILOT, [])
+    begin(start, naming(name, terminal_name, PILOT), terminal_name, False)
+
+
+def is_own_tab(tab):
+    return False
