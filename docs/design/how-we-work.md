@@ -37,12 +37,12 @@ the TUI has its own server, the app is a client of `herdr-core` (`hc`), a
 terminal runtime that draws nothing and whose one published API promises only
 to grow, and what runs in one does not show up in the other. Upgrading the TUI
 brings no shared base, so as long as both are used the integration has to speak
-to each. It is the layer `herdr/lib/frontend/`: `open-session`, `autopilot` and
-`pick` ask it for spaces, tabs and sessions, and its backend, `tui` or `app`,
-translates. The desktop app comes first where the work has to choose, and the
-`tui` backend stays as it was, the way back while the app and its core, 0.1.x
-and self-updating, can change under us. The app's backend talks to the core
-first: `hc` carries everything that is a session (creating, finding, reading,
+to each. It is the layer `herdr/lib/frontend/`: `open-session` and `autopilot`
+ask it for spaces, tabs and sessions, and its backend, `tui` or `app`,
+translates; `pick` and the app's mod only run those two scripts. The desktop
+app comes first where the work has to choose, and the `tui` backend stays as it
+was, the way back while the app and its core, 0.1.x and self-updating, can
+change under us. The app's backend talks to the core first: `hc` carries everything that is a session (creating, finding, reading,
 knowing it ended), found by labels of ours; the window, `herdr-app`, is only
 for focusing, naming and showing the picker, so an autopilot does not depend on
 an open window. A repo never has two sessions or two autopilots: before it
