@@ -96,10 +96,12 @@ def choose(option=None, environ=None, ask=ask):
 
       1. the one asked for: `option`, which is `--frontend`, or else the
          variable `OXC0_HERDR_FRONTEND`
-      2. the one `environ` says this runs in: a pane of the TUI has
-         `HERDR_PANE_ID`, a terminal of the app `HC_TERMINAL_ID`; with both,
-         the TUI, since its server hands its own environment to its panes and
-         the app's core gives its terminals no `HERDR*` variable
+      2. the one `environ` says this runs in: whatever the TUI starts has
+         `HERDR_ENV=1`, a pane as much as a plugin's popup, and a terminal of
+         the app has `HC_TERMINAL_ID`; with both, the TUI, since its server
+         hands its own environment to what it starts and the app's core gives
+         its terminals no `HERDR*` variable. `HERDR_PANE_ID` does not tell: the
+         TUI starts a popup without it
       3. the app if its window answers, otherwise the TUI
 
     Fails when the one named is not a front end, or is not installed. `ask`
@@ -109,8 +111,8 @@ def choose(option=None, environ=None, ask=ask):
         name, why = (option, "--frontend") if option else (environ[FRONTEND_ENV], f"${FRONTEND_ENV}")
         if name not in FRONTENDS:
             raise Failed(f"{why}: {name!r} is not a front end: use {' or '.join(FRONTENDS)}")
-    elif environ.get("HERDR_PANE_ID"):
-        name, why = "tui", "this runs in one of its panes"
+    elif environ.get("HERDR_ENV") == "1":
+        name, why = "tui", "this runs in something it started"
     elif environ.get("HC_TERMINAL_ID"):
         name, why = "app", "this runs in one of its terminals"
     elif not ask("app", "missing") and ask("app", "shows"):

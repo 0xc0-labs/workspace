@@ -35,6 +35,7 @@ import json
 import os
 import re
 import shlex
+import socket
 import stat
 import subprocess
 import sys
@@ -217,10 +218,86 @@ def play(app, recorded, action):
     return ran, out.getvalue(), result
 
 
+def core_cases(app):
+    """(what, got, want) for where the app backend looks for the core's socket
+    and for whether it answers there, from temporary files: no core runs."""
+    cases = []
+    home, state = "/home/op", "/home/op/.local/state/herdr-core"
+    nowhere = "/nonexistent-run"
+    # A socket's path may be 103 bytes at most on macOS, and $TMPDIR may be long.
+    with tempfile.TemporaryDirectory(dir="/tmp", prefix="hc") as tmp:
+        config = Path(tmp) / "herdr-core" / "config.toml"
+        config.parent.mkdir()
+        runtime = Path(tmp) / "run"
+        (runtime / "herdr-core").mkdir(parents=True)
+        socket_rows = [
+            ("HC_SOCKET wins", {"HC_SOCKET": "/x/a.sock", "XDG_RUNTIME_DIR": "/run/u"}, nowhere, "/x/a.sock"),
+            ("an empty HC_SOCKET is not set", {"HC_SOCKET": ""}, nowhere, f"{state}/default/default.sock"),
+            ("the state directory, by default", {}, nowhere, f"{state}/default/default.sock"),
+            ("XDG_STATE_HOME", {"XDG_STATE_HOME": "/st"}, nowhere, "/st/herdr-core/default/default.sock"),
+            ("HC_SESSION", {"HC_SESSION": "work"}, nowhere, f"{state}/work/work.sock"),
+            ("XDG_RUNTIME_DIR", {"XDG_RUNTIME_DIR": "/run/u", "HC_SESSION": "work"}, nowhere,
+             "/run/u/herdr-core/work.sock"),
+            ("/run/user/<uid>, when it is a directory", {}, str(runtime), f"{runtime}/herdr-core/default.sock"),
+            ("XDG_RUNTIME_DIR wins over /run/user/<uid>", {"XDG_RUNTIME_DIR": "/run/u"}, str(runtime),
+             "/run/u/herdr-core/default.sock"),
+        ]
+        for what, environ, run_user, want in socket_rows:
+            cases.append((f"core socket: {what}", app.core_socket({"HOME": home, **environ}, run_user), want))
+        configs = [
+            ("a top-level socket", 'socket = "/c/core.sock"\n', "/c/core.sock"),
+            ("single quotes and a comment", "  socket = '/c/core.sock'  # mine\n", "/c/core.sock"),
+            ("after other keys", 'notes = false\nsocket = "/c/core.sock"\n', "/c/core.sock"),
+            ("a commented line", '# socket = "/c/core.sock"\n', None),
+            ("a key of a table", '[machines]\nsocket = "/c/core.sock"\n', None),
+            ("an empty value", 'socket = ""\n', None),
+            ("another key that ends in socket", 'x_socket = "/c/core.sock"\n', None),
+        ]
+        for what, text, want in configs:
+            config.write_text(text)
+            environ = {"HOME": home, "XDG_CONFIG_HOME": tmp, "XDG_RUNTIME_DIR": "/run/u"}
+            cases.append((f"core socket, config file: {what}", app.core_socket(environ, nowhere),
+                          want or "/run/u/herdr-core/default.sock"))
+        config.unlink()
+        cases.append(("core socket: no config file", app.core_socket({"HOME": home, "XDG_CONFIG_HOME": tmp}, nowhere),
+                      f"{state}/default/default.sock"))
+
+        path = f"{tmp}/core.sock"
+
+        def answers():
+            saved = os.environ.get("HC_SOCKET")
+            os.environ["HC_SOCKET"] = path
+            try:
+                return play(app, {}, app.answers)
+            finally:
+                if saved is None:
+                    del os.environ["HC_SOCKET"]
+                else:
+                    os.environ["HC_SOCKET"] = saved
+
+        cases.append(("core answers: no socket there, and no command run", answers(), ([], "", False)))
+        listener = socket.socket(socket.AF_UNIX)
+        try:
+            listener.bind(path)
+            listener.listen(1)
+            cases.append(("core answers: a socket somebody listens on", answers(), ([], "", True)))
+        finally:
+            listener.close()
+        cases.append(("core answers: the file is still there", os.path.exists(path), True))
+        cases.append(("core answers: a socket file a closed listener left behind", answers(), ([], "", False)))
+    return cases
+
+
 def frontend_cases():
     """(what, got, want) for the layer's rule and for the app backend, from
-    fake environments and the answers of `hc` and `herdr-app` recorded on
-    2026-11-17 (0xc0-labs/workspace#226): nothing runs."""
+    fake environments and answers of `hc` and `herdr-app`; nothing runs.
+    Recorded from the real programs on 2026-11-17 (0xc0-labs/workspace#226):
+    the `hc ls` answers with a session and with none, `hc run`'s, and
+    `herdr-app do`'s `{"ok": true}`. Stand-ins of the documented shape: two
+    sessions listed, the list of the window's commands, `herdr-app do`'s
+    `{"error": …}` with exit status 1, and the errors of `hc`, whose kinds
+    `unavailable` and `name_taken` are named in `hc schema`, with their exit
+    statuses and messages."""
     cases = []
     app, tui = frontend.load("app"), frontend.load("tui")
     for name in frontend.FRONTENDS:
@@ -246,10 +323,16 @@ def frontend_cases():
         ("the option wins over the variable", ("app", {var: "tui"}, asks()), "app"),
         ("the variable wins over where this runs", (None, {var: "tui", "HC_TERMINAL_ID": "t2"}, asks()), "tui"),
         ("the variable alone", (None, {var: "app"}, asks()), "app"),
-        ("an empty variable is not set", (None, {var: "", "HERDR_PANE_ID": "p1"}, asks()), "tui"),
+        ("an empty variable is not set", (None, {var: "", "HERDR_ENV": "1"}, asks()), "tui"),
         ("a terminal of the app", (None, {"HC_TERMINAL_ID": "t2"}, asks()), "app"),
-        ("a pane of the TUI", (None, {"HERDR_PANE_ID": "p1"}, asks(window=True)), "tui"),
-        ("both: the TUI", (None, {"HERDR_PANE_ID": "p1", "HC_TERMINAL_ID": "t2"}, asks(window=True)), "tui"),
+        ("a pane of the TUI", (None, {"HERDR_ENV": "1", "HERDR_PANE_ID": "p1"}, asks(window=True)), "tui"),
+        ("a popup of the TUI, which has no pane id, with the app's window open",
+         (None, {"HERDR_ENV": "1"}, asks(window=True)), "tui"),
+        ("both: the TUI", (None, {"HERDR_ENV": "1", "HC_TERMINAL_ID": "t2"}, asks(window=True)), "tui"),
+        ("both, with a pane id: the TUI",
+         (None, {"HERDR_ENV": "1", "HERDR_PANE_ID": "p1", "HC_TERMINAL_ID": "t2"}, asks(window=True)), "tui"),
+        ("a pane id alone does not tell the TUI", (None, {"HERDR_PANE_ID": "p1"}, asks(window=True)), "app"),
+        ("HERDR_ENV other than 1 does not tell the TUI", (None, {"HERDR_ENV": "0"}, asks(window=True)), "app"),
         ("outside both, the window answers", (None, {}, asks(window=True)), "app"),
         ("outside both, the window does not answer", (None, {}, asks(window=False)), "tui"),
         ("outside both, the app is not installed", (None, {}, asks(installed=("tui",))), "tui"),
@@ -289,7 +372,7 @@ def frontend_cases():
     no_focus = json.dumps([c for c in json.loads(commands) if c["name"] != "agent.focus"])
     ok, not_shown = (0, '{"ok": true}'), (1, '{"error": "no such space"}')
     lookup = "hc ls --label oxc0.space=payload --label oxc0.role=session --json"
-    status, listing, core = "herdr-app status", "herdr-app commands", "hc server status --json"
+    status, listing = "herdr-app status", "herdr-app commands"
     start = ("hc run --bg --keep --rm --no-parent --no-notify --json --name payload --cwd /ws/payload "
              "--label herdr.space=oxc0-payload --label herdr.tab=oxc0-payload "
              "--label oxc0.space=payload --label oxc0.role=session -- claude -n payload /0xc0:work-issue")
@@ -316,8 +399,6 @@ def frontend_cases():
           "payload: 2 sessions carry its labels (t9, t12); taking the first, t9\n", session)
     plays("no core to look in", {lookup: (5, '{"error":{"kind":"unavailable","message":"no core running"}}')},
           find, [lookup], "", "failed: hc ls: unavailable: no core running")
-    plays("the core answers", {core: (0, "{}")}, app.answers, [core], "", True)
-    plays("the core does not answer", {core: (5, "")}, app.answers, [core], "", False)
     plays("the window answers", window, app.shows, [status], "", True)
     plays("the window does not answer", {status: (2, "")}, app.shows, [status], "", False)
     plays("a session opened with the window: named, retried until shown, focused",
@@ -354,6 +435,8 @@ def frontend_cases():
           lambda: app.focus_session(session), [status],
           "payload runs as t9, and the app's window is not there to show it\n", None)
 
+    cases.extend(core_cases(app))
+
     forbidden = re.compile(r"^hc (send|keys|attach|get|read|label|kill|rm)\b|--force")
     ran = [line for what, got, _ in cases if what.startswith("app: ") for line in got[0]]
     cases.append(("the app backend never types into a terminal, reads one or forces",
@@ -362,7 +445,7 @@ def frontend_cases():
 
 
 def self_test():
-    mention ="The `work-issue: done payload#82` line also waits until then."
+    mention = "The `work-issue: done payload#82` line also waits until then."
     cases = [
         ("payload", 82, "work-issue: done payload#82", "done payload#82"),
         ("payload", 82, "  work-issue: done payload#82  ", "done payload#82"),

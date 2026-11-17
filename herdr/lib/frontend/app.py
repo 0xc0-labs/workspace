@@ -7,11 +7,15 @@ a terminal or reads its screen, and no other file runs `hc` or `herdr-app`.
 Only what `bin/open-session` asks of the layer is here: the other operations
 fail with a message until the autopilot needs them."""
 import json
+import os
+import re
 import shlex
 import shutil
+import socket
 import subprocess
 import time
 from dataclasses import dataclass
+from pathlib import Path
 
 from . import Failed
 
@@ -69,10 +73,49 @@ def missing():
     return [program for program in (HC, HERDR_APP) if shutil.which(program) is None]
 
 
+def core_socket(environ=None, run_user=None):
+    """Where `hc` looks for the core's socket. This mirrors herdr-core 0.1.21
+    (`paths.rs`, `platform/unix.rs`), which may move it: there is no `hc`
+    command that tells without starting a core.
+
+    The config file is read for its top-level `socket = "…"` line alone, before
+    the first table: the OS's python3 has no `tomllib`, so this is not a TOML
+    parser, and a value with escapes is taken as written."""
+    environ = os.environ if environ is None else environ
+    if environ.get("HC_SOCKET"):
+        return environ["HC_SOCKET"]
+    home = environ.get("HOME") or os.path.expanduser("~")
+    config = Path(environ.get("XDG_CONFIG_HOME") or f"{home}/.config") / "herdr-core" / "config.toml"
+    try:
+        for line in config.read_text().splitlines():
+            if line.lstrip().startswith("["):
+                break
+            m = re.fullmatch(r"\s*socket\s*=\s*(?:\"([^\"]*)\"|'([^']*)')\s*(?:#.*)?", line)
+            if m and (m.group(1) or m.group(2)):
+                return m.group(1) or m.group(2)
+    except (OSError, ValueError):
+        pass
+    session = environ.get("HC_SESSION") or "default"
+    run_user = run_user or f"/run/user/{os.getuid()}"
+    if environ.get("XDG_RUNTIME_DIR"):
+        return f"{environ['XDG_RUNTIME_DIR']}/herdr-core/{session}.sock"
+    if os.path.isdir(run_user):
+        return f"{run_user}/herdr-core/{session}.sock"
+    state = environ.get("XDG_STATE_HOME") or f"{home}/.local/state"
+    return f"{state}/herdr-core/{session}/{session}.sock"
+
+
 def answers():
-    # The command made to report the core: a terminal command may start one
-    # that is not running, and a lookup must not.
-    return call(HC, "server", "status", "--json").returncode == 0
+    """Whether the core's socket accepts a connection, closed at once. Not
+    `hc server status`: on macOS and Linux that starts a core that is not
+    running, and so does every other `hc` command that asks."""
+    with socket.socket(socket.AF_UNIX) as s:
+        s.settimeout(2)
+        try:
+            s.connect(core_socket())
+        except OSError:
+            return False
+    return True
 
 
 def shows():

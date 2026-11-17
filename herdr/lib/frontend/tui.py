@@ -65,7 +65,7 @@ def missing():
 
 def answers():
     # `herdr status` is the command made to report the server, running or not.
-    p =subprocess.run([HERDR, "status", "server", "--json"], capture_output=True, text=True)
+    p = subprocess.run([HERDR, "status", "server", "--json"], capture_output=True, text=True)
     try:
         return p.returncode == 0 and json.loads(p.stdout).get("running") is True
     except ValueError:

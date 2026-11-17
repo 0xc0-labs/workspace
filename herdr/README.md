@@ -159,10 +159,12 @@ in the front end in use, picked by the first rule that applies:
 1. The one asked for: `--frontend tui|app`, or `OXC0_HERDR_FRONTEND=tui|app`.
    The option wins over the variable.
 2. The one the script is launched from: a terminal of the app has
-   `HC_TERMINAL_ID`, a pane of the TUI has `HERDR_PANE_ID`. With both set, the
-   TUI: its server hands its own environment to its panes, so a pane started
-   from a terminal of the app has both, while the core gives its terminals no
-   `HERDR*` variable.
+   `HC_TERMINAL_ID`; whatever the TUI starts has `HERDR_ENV=1`, a pane as much
+   as a plugin's popup. `HERDR_PANE_ID` does not tell: the TUI starts a popup
+   without it, and `bin/pick` runs `open-session` from one. With both set, the
+   TUI: its server hands its own environment to what it starts, so one
+   started from a terminal of the app has both, while the core gives its
+   terminals no `HERDR*` variable.
 3. Outside both: the app if its window answers (`herdr-app status` exits 0),
    otherwise the TUI.
 
@@ -172,12 +174,27 @@ message that says which.
 
 Before opening anything, it looks for the session in the front end picked and
 in every other that answers, and focuses it where it finds it, whichever
-front end was picked. A front end answers when its server does, asked with a
-command that does not start one that is not running: `herdr status server`
-for the TUI, `hc server status` for the app's core. In the app a session is
-found by the core, so it is found while the window is closed too: the script
-then says the session runs and the window is not there to show it, and opens
-nothing.
+front end was picked. A front end answers when its server does, and the
+question never starts a server that is not running:
+
+- TUI: `herdr status server` reports the server's status, running or not.
+- The app's window, which the rule's third row and focusing use:
+  `herdr-app status` exits 0.
+- The app's core, which looking a session up uses: whether its socket accepts
+  a connection, closed at once, with no `hc` command. `hc server status` is
+  not that question: on macOS and Linux it starts a core that is not running,
+  and so does every `hc` command that asks. The socket is where `hc` looks for
+  it (`herdr-core` 0.1.21): `HC_SOCKET` when set; else the top-level `socket`
+  key of `${XDG_CONFIG_HOME:-~/.config}/herdr-core/config.toml`; else
+  `<run>/<session>.sock`, with `<session>` the `HC_SESSION` or `default`, and
+  `<run>` the `$XDG_RUNTIME_DIR/herdr-core`, or `/run/user/<uid>/herdr-core`
+  when that is a directory, or else
+  `${XDG_STATE_HOME:-~/.local/state}/herdr-core/<session>`. A socket file
+  nobody listens on refuses the connection: the core is not running.
+
+In the app a session is found by the core, so it is found while the window is
+closed too: the script then says the session runs and the window is not there
+to show it, and opens nothing.
 
 ### In the app
 
@@ -399,9 +416,13 @@ the backend by the rule in Opening a session by hand. The autopilot takes
 with a message.
 
 `bin/open-session <dir> --dry-run`, with either `--frontend`, prints what it
-would do, touching nothing. `bin/autopilot --self-test` checks the rule, and
-the app backend reading answers of `hc` and `herdr-app` recorded from the
-real ones, with no Herdr running; it also says what each backend has. Both
+would do, touching nothing. `bin/autopilot --self-test` checks the rule, where
+the app's core socket is looked for and whether it answers (on a temporary
+socket), and the app backend reading the answers of `hc` and `herdr-app`, with
+no Herdr running; it also says what each backend has. Of those answers, the
+`hc ls` ones, `hc run`'s and `herdr-app do`'s `{"ok": true}` were recorded from
+the real programs; the others (two sessions listed, the window's list of
+commands, the errors) are stand-ins of the documented shape. Both
 scripts need `python3`, from the OS: they are written in it, with its standard
 library alone. The autopilot runs `gh` through mise, from the workspace's
 `mise.toml`.
