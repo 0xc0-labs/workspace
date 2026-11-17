@@ -226,7 +226,8 @@ framework alone goes in the repo that uses it, in its `CLAUDE.md` or `docs/`.
 On a machine, Claude Code loads a repo's enabled plugins only once they are
 installed for its path, and a worktree uses its repo's record:
 `herdr/bin/autopilot prepare`, which `bootstrap.sh` and every autopilot run,
-installs whatever is missing, at local scope (workspace#106, #115).
+installs whatever is missing, at local scope (workspace#106, #115), and
+brings up to date the org's own plugins the repo enables (workspace#221).
 
 Nothing that overlaps what is already there: `/simplify`, `/code-review` and
 `/security-review` are built in. What leads the work inside an issue is the
