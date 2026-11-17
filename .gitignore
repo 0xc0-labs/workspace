@@ -18,6 +18,11 @@
 # Claude Code's own worktrees, where the orchestrator's subagents work.
 /.claude/worktrees/
 
+# What Herdr's desktop app writes into a mod's folder when it loads or checks
+# the mod (herdr/README.md, The picker in the app).
+/herdr/mods/*/jsconfig.json
+/herdr/mods/*/gpui-kit.d.ts
+
 mise.local.toml
 
 .DS_Store
