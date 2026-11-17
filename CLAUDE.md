@@ -211,17 +211,28 @@ org's hooks. From Anthropic's marketplace, only what applies (workspace#72):
 | `typescript-lsp` | the TypeScript repos; `typescript-language-server` and `typescript` pinned in their `mise.toml` |
 | `frontend-design` | the frontends |
 
+`agent-skills` is not Anthropic's: it comes from the org's marketplace, as
+`agent-skills@0xc0-labs`, and a repo enables it in its own
+`.claude/settings.json` where it leads the work inside an issue:
+`packages`, `artistlabco.com` and every new application repo (workspace#214).
+
 On a machine, Claude Code loads a repo's enabled plugins only once they are
 installed for its path, and a worktree uses its repo's record:
 `herdr/bin/autopilot prepare`, which `bootstrap.sh` and every autopilot run,
 installs whatever is missing, at local scope (workspace#106, #115).
 
 Nothing that overlaps what is already there: `/simplify`, `/code-review` and
-`/security-review` are built in, and the app repos carry gentle-ai.
-gentle-ai's feature document (`odd/tasks/<feature>.md`) is committed in the
-same PR as its feature, never kept out of git (workspace#98).
-Where gentle-ai's instructions and the org's differ, the org's win: this
-file and `docs/design/`.
+`/security-review` are built in. What leads the work inside an issue is the
+repo's harness: `agent-skills` where its settings enable
+`agent-skills@0xc0-labs` (from the org's marketplace, pinned there by tag and
+commit), gentle-ai in a repo that still carries it (`payload`, until
+workspace#204; operator decision, 2026-11-17; workspace#214). The harness's
+feature document is committed in the same PR as its feature, never kept out
+of git (workspace#98): `spec/<feature>.md` with `agent-skills` (spec, plan
+and tasks in that one file: no `SPEC.md`, no `tasks/`),
+`odd/tasks/<feature>.md` with gentle-ai in `payload`. Where a harness's
+instructions and the org's differ, the org's win: this file and
+`docs/design/`.
 
 Plugins keep themselves current (workspace#80):
 
@@ -236,6 +247,11 @@ Plugins keep themselves current (workspace#80):
   when a session started in that repo runs it, so the repo's checkout must be
   on an up-to-date `main`: a merged PR's stale branch may not carry the
   setting.
+- **`agent-skills` is pinned in the org marketplace**, `claude-config`'s
+  `.claude-plugin/marketplace.json`, by `ref` and `sha`. Moving it is one PR
+  in `claude-config`, which reaches every repo through the `autoUpdate` of
+  `0xc0-labs`: no `.claude/` commit in each. Why, in
+  `docs/design/how-we-work.md`.
 - **Any change under a plugin's directory bumps its `version` in
   `plugin.json`**, the only place it lives: a session gets a new copy only
   when the version changes. `claude-config`'s CI fails a PR that does not
