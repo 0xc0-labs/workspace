@@ -232,14 +232,12 @@ Nothing that overlaps what is already there: `/simplify`, `/code-review` and
 `/security-review` are built in. What leads the work inside an issue is the
 repo's harness: `agent-skills` where its settings enable
 `agent-skills@0xc0-labs` (from the org's marketplace, pinned there by tag and
-commit), gentle-ai in a repo that still carries it (`payload`, until
-workspace#204; operator decision, 2026-11-17; workspace#214). The harness's
-feature document is committed in the same PR as its feature, never kept out
-of git (workspace#98): `spec/<feature>.md` with `agent-skills` (spec, plan
-and tasks in that one file: no `SPEC.md`, no `tasks/`),
-`odd/tasks/<feature>.md` with gentle-ai in `payload`. Where a harness's
-instructions and the org's differ, the org's win: this file, `docs/design/`
-and the skills of the org's own plugins (`0xc0`, `software-architecture`).
+commit; operator decision, 2026-11-17; workspace#214). The harness's feature
+document is `spec/<feature>.md` (spec, plan and tasks in that one file: no
+`SPEC.md`, no `tasks/`), committed in the same PR as its feature, never kept
+out of git (workspace#98). Where a harness's instructions and the org's
+differ, the org's win: this file, `docs/design/` and the skills of the org's
+own plugins (`0xc0`, `software-architecture`).
 
 Plugins keep themselves current (workspace#80):
 
