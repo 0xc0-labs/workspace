@@ -203,9 +203,10 @@ def outcome(function, *args):
 
 def play(app, recorded, action):
     """Runs `action` with the app backend's `hc` and `herdr-app` calls
-    answered from `recorded`, command line to (exit status, stdout), or a list
-    of them taken in turn, the last one repeating. Returns the command lines
-    it ran, what it printed and what it returned."""
+    answered from `recorded`, command line to (exit status, stdout), with a
+    third item for its stderr when it has one, or a list of them taken in turn,
+    the last one repeating. Returns the command lines it ran, what it printed
+    and what it returned."""
     ran, out = [], io.StringIO()
 
     def call(*command):
@@ -214,7 +215,7 @@ def play(app, recorded, action):
         answer = recorded.get(line, (99, f"no recorded answer for {line}"))
         if isinstance(answer, list):
             answer = answer.pop(0) if len(answer) > 1 else answer[0]
-        return subprocess.CompletedProcess(command, answer[0], answer[1], "")
+        return subprocess.CompletedProcess(command, answer[0], answer[1], answer[2] if len(answer) > 2 else "")
 
     saved = app.call, app.PAUSE
     app.call, app.PAUSE = call, 0
@@ -405,6 +406,28 @@ def app_autopilot_cases(app):
           lambda: app.read_screen(session), [read], "", "failed: hc read: its answer is not JSON")
     plays("hc read answering without text", {read: (0, '{"complete":true,"how":"screen"}')},
           lambda: app.read_screen(session), [read], "", "failed: hc read: its answer has no text")
+
+    # A call that fails says its `error`, else its exit status and nothing it
+    # wrote: that may be a terminal's text, which would reach the loop's log.
+    not_found_error = '{"error":{"kind":"not_found","message":"t7 was removed"}}'
+    failures = [
+        ("text cut off", (5, f'{{"address":"t7","screen":"{SCREEN}'), "exit status 5"),
+        ("a whole answer with no `error`", (1, json.dumps({"address": "t7", "screen": SCREEN, "text": SCREEN})),
+         "exit status 1"),
+        ("text on stderr", (2, "", SCREEN), "exit status 2"),
+        ("an `error` and the text", (3, json.dumps({**json.loads(not_found_error), "screen": SCREEN, "text": SCREEN})),
+         "not_found: t7 was removed"),
+        ("an `error` on stderr", (3, SCREEN, not_found_error), "not_found: t7 was removed"),
+    ]
+    for what, reply, said in failures:
+        for call_, line, action in (
+                ("hc get", get, lambda: app.session_state(app.Session("t7", "payload-19", row()))),
+                ("hc read", read, lambda: app.read_screen(session))):
+            plays(f"{call_} failing with {what} says {said}", {line: reply}, action, [line], "",
+                  f"failed: {call_}: {said}")
+    plays("a command that is not a terminal's text still says what it wrote",
+          {"hc rm t7": (1, "", "t7: cannot be removed")}, lambda: app.remove("t7"), ["hc rm t7"], "",
+          "failed: hc rm: t7: cannot be removed")
     read_back = play(app, {read: answer}, lambda: app.read_screen(session))[2]
     last_lines = [
         ("done", read_back, "done payload#19"),
@@ -505,27 +528,80 @@ def app_autopilot_cases(app):
     def loop_row(**fields):
         return row(**{"address": "t3", "name": "payload-autopilot", **fields})
 
+    # `hc get` of a loop, as recorded on 2026-11-17 (hc 0.1.21): `keep` is true
+    # though the loop was started without `--keep`.
+    loop_get = "hc get t3 --json"
+    interpreter = ("/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/"
+                   "Resources/Python.app/Contents/MacOS/Python")
+    running = {"argv": [interpreter, "/ws/herdr/bin/autopilot", "run", "/ws/payload"]}
+
+    def loop_terminal(foreground=None):
+        return 0, json.dumps({"address": "t3", "name": "payload-autopilot", "keep": True, "rm": False,
+                              "parent": None, "notify": False, "screen": SCREEN,
+                              "labels": {"herdr.space": "oxc0-payload", "herdr.tab": "oxc0-payload-autopilot",
+                                         "oxc0.role": "autopilot", "oxc0.space": "payload"},
+                              **({"foreground": foreground} if foreground else {})})
+
     gone = dict(state="finished", turn=0)
     pilot_rows = [
-        ("a live one: on", [loop_row(status="working", turn=1)], ("t3", True), []),
-        ("a live one that has not reported yet: on", [loop_row()], ("t3", True), []),
+        ("a live one: on", [loop_row(status="working", turn=1)], ("t3", True), [], running),
+        ("a live one that has not reported yet: on", [loop_row()], ("t3", True), [], running),
         ("none live, one finished with exit 0: off, and it is removed",
-         [loop_row(**gone, exit_code=0, reason="exited")], None, ["hc rm t3"]),
+         [loop_row(**gone, exit_code=0, reason="exited")], None, ["hc rm t3"], False),
         ("none live, one finished with another exit code: dead",
-         [loop_row(**gone, exit_code=129, reason="killed")], ("t3", False), []),
+         [loop_row(**gone, exit_code=129, reason="killed")], ("t3", False), [], False),
         ("none live, one finished with no exit code: dead",
-         [loop_row(**gone, reason="signaled")], ("t3", False), []),
-        ("none: off", [], None, []),
+         [loop_row(**gone, reason="signaled")], ("t3", False), [], False),
+        ("none: off", [], None, [], False),
         ("one live and an older one that exited with 0: on, and the old one is removed",
          [loop_row(address="t2", **gone, exit_code=0, reason="exited"), loop_row(status="idle", turn=1)],
-         ("t3", True), ["hc rm t2"]),
+         ("t3", True), ["hc rm t2"], running),
         ("one that exited with 0 and one that did not: dead, and the first is removed",
          [loop_row(address="t2", **gone, exit_code=0, reason="exited"),
-          loop_row(**gone, exit_code=1, reason="exited")], ("t3", False), ["hc rm t2"]),
+          loop_row(**gone, exit_code=1, reason="exited")], ("t3", False), ["hc rm t2"], False),
     ]
-    for what, rows, want, more in pilot_rows:
-        recorded = {pilot_ls: ls(*rows), **{removal: (0, '{"removed":"t"}') for removal in more}}
-        plays(f"a pilot's state, {what}", recorded, found, [pilot_ls, *more], "", want)
+    for what, rows, want, more, front in pilot_rows:
+        asked = front is not False
+        recorded = {pilot_ls: ls(*rows), **{removal: (0, '{"removed":"t"}') for removal in more},
+                    **({loop_get: loop_terminal(front)} if asked else {})}
+        plays(f"a pilot's state, {what}", recorded, found, [pilot_ls, *more, *([loop_get] if asked else [])], "",
+              want)
+
+    # A live terminal is on only while the loop is what runs in front of it.
+    other_checkout = {"argv": [interpreter, "/other/ws/herdr/bin/autopilot", "run", "/ws/payload"]}
+    env_in_front = {"argv": ["env", "OXC0_HERDR_FRONTEND=app", "/ws/herdr/bin/autopilot", "run", "/ws/payload"]}
+    shebang_env = {"argv": ["/usr/bin/env", "python3", "/ws/herdr/bin/autopilot", "run", "/ws/payload"]}
+    in_front = [
+        ("the loop in front", running, True),
+        ("the loop started from another checkout", other_checkout, True),
+        ("env in front, a moment after start", env_in_front, True),
+        ("env of the loop's shebang in front", shebang_env, True),
+        ("no `foreground` yet, a moment after start", None, True),
+        ("a `foreground` without a command line", {"name": "Python"}, True),
+        ("a shell where the loop was", shell, False),
+        ("a login shell by its absolute path", {"argv": ["/bin/zsh", "-l"]}, False),
+        ("another program", {"argv": ["vim", "notes.md"]}, False),
+        ("another script of the workspace", {"argv": [interpreter, "/ws/herdr/bin/open-session", "/ws/payload"]},
+         False),
+        ("the loop's script asked something else", {"argv": [interpreter, "/ws/herdr/bin/autopilot", "state",
+                                                            "payload"]}, False),
+        ("the loop's script alone", {"argv": [interpreter, "/ws/herdr/bin/autopilot"]}, False),
+        ("an autopilot script of another project", {"argv": [interpreter, "/ws/bin/autopilot", "run", "/ws/payload"]},
+         False),
+    ]
+    for what, foreground, want in in_front:
+        plays(f"a pilot's state, live with {what}: {'on' if want else 'dead'}",
+              {pilot_ls: ls(loop_row(status="working", turn=1)), loop_get: loop_terminal(foreground)},
+              found, [pilot_ls, loop_get], "", ("t3", want))
+    leaked = play(app, {pilot_ls: ls(loop_row(status="working", turn=1)), loop_get: loop_terminal(shell)}, found)
+    cases.append(("the screen hc get answers for a loop is dropped and goes nowhere", SCREEN in repr(leaked), False))
+    plays("a pilot whose terminal cannot be read is not taken for on or dead",
+          {pilot_ls: ls(loop_row(status="working", turn=1)),
+           loop_get: (3, '{"error":{"kind":"not_found","message":"t3 was removed"}}')},
+          found, [pilot_ls, loop_get], "", "failed: hc get: not_found: t3 was removed")
+    plays("hc get failing on a loop says its exit status, not its text",
+          {pilot_ls: ls(loop_row(status="working", turn=1)), loop_get: (5, f'{{"screen":"{SCREEN}')},
+          found, [pilot_ls, loop_get], "", "failed: hc get: exit status 5")
     plays("a pilot removed meanwhile is not an error", {
         pilot_ls: ls(loop_row(**gone, exit_code=0, reason="exited")), "hc rm t3": not_found},
           found, [pilot_ls, "hc rm t3"], "", None)

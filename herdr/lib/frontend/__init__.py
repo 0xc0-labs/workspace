@@ -231,7 +231,8 @@ def pilot(name):
 
 @operation
 def pilot_alive(tab):
-    """Whether a program still runs in the autopilot's tab."""
+    """Whether the loop still runs in the autopilot's tab, as far as the front
+    end can tell it from a shell or another program that took its place."""
 
 
 @operation
