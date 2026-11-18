@@ -145,8 +145,9 @@ data disks included, and that is what the timed restore tests.
 **The applications' files live in Cloudflare R2** (operator decision,
 2026-10-11; workspace#88), the one object store for them: uploads and
 anything else an application keeps as objects. Longhorn keeps the databases
-and what needs a filesystem; RustFS keeps only the OpenTofu state. One bucket
-per application and environment, named `<namespace>-<purpose>`
+and what needs a filesystem; RustFS keeps only the OpenTofu state. Plane's
+attachments are the one exception, in the object store of its chart (Plane,
+below). One bucket per application and environment, named `<namespace>-<purpose>`
 (`artistlabco-com-media`, `artistlabco-com-staging-media`), created by
 `infrastructure`'s Cloudflare root with a western Europe location hint, its
 `r2.dev` URL off. A bucket whose files are public is attached to a hostname
@@ -332,6 +333,22 @@ It was added because Payload does not support MySQL or MariaDB. It stays
 for Strapi, which supports it: the server, its network policy and its dumps
 already exist, so each site's Strapi is one more database and role on it,
 and no second engine or server runs for it.
+
+**Plane is Matchmark's tracker, not the org's** (operator decisions,
+2026-11-18; workspace#247): Matchmark's software factory will read and write
+its work there, and the org's board stays the source of truth for the org's
+work. It is on the WARP-only path, `https://plane.int.0xc0.cc`, and never
+public: no public name and no Cloudflare Access application. Its
+database is one more on the shared PostgreSQL, as every application's. Its
+Valkey, RabbitMQ and object store are its chart's own, in its namespace,
+`plane`. The object store is for Plane's attachments alone, the one exception
+to the [discarded](../discarded.md) object store in the cluster: Plane signs
+every upload with a presigned POST, and R2 signs only GET, HEAD, PUT and
+DELETE. Its namespace enforces `baseline`, not `restricted`, because its
+images declare no user and run as root and its chart sets no security
+context; tightening it is a later change, 0xc0-labs/gitops#418. How it is
+deployed and operated is `gitops`' own, in its
+[`apps/plane/README.md`](https://github.com/0xc0-labs/gitops/blob/main/apps/plane/README.md).
 
 **Application repos carry the `app` topic** (operator decision,
 2026-10-09), set in `.github`'s `terraform.tfvars` with the others.
