@@ -9,6 +9,8 @@
 /packages/
 /offby1.cc/
 /artistlabco.com/
+/matchmark/
+/matchmark-config/
 /app-*/
 
 # One worktree per issue's session, placed by the 0xc0 plugin's WorktreeCreate

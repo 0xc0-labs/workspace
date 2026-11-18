@@ -12,6 +12,13 @@ that does not releases every push to `main` (Application delivery, below).
 ArgoCD points at `gitops/bootstrap/prod/`, which deploys `platform/` and
 `apps/`. `gitops` merges through a merge queue (Application delivery, below).
 
+**Matchmark has two repos, both private** (operator decision, 2026-11-18;
+workspace#244): `matchmark`, the code of the platform, and
+`matchmark-config`, the definitions of the org's own workspace in it.
+`matchmark-skills` and the evals get a repo when they are needed, not before.
+Matchmark's design lives in `matchmark/docs/`, not here: the workspace keeps
+only what is the org's.
+
 ## Application delivery
 
 How an application's code goes from a commit to staging and prod, and how a

@@ -20,11 +20,14 @@ it too.
 | `packages/`      | `packages`        | shared code as versioned npm packages (`@0xc0-labs/<name>`) |
 | `offby1.cc/`     | `offby1.cc`       | Next.js landing page for offby1.cc              |
 | `artistlabco.com/` | `artistlabco.com` | the artist's site and its Strapi, in `cms/`   |
+| `matchmark/`     | `matchmark`       | Matchmark, the platform for applications made of AI agents; its design in `docs/` |
+| `matchmark-config/` | `matchmark-config` | Matchmark's definitions for the org's own workspace |
 | `app-*/`         | various           | applications                                    |
 
 Dependency order: `.github` → `infrastructure` → `gitops` → `vault` →
-`packages` → the applications (`offby1.cc`, `artistlabco.com`, `app-*`), which
-pin its packages.
+`packages` → the applications (`offby1.cc`, `artistlabco.com`, `matchmark`,
+`app-*`), which pin its packages. `matchmark-config` comes after `matchmark`:
+it holds definitions for the platform `matchmark` builds.
 `claude-config` stands apart: nothing depends on it at deploy time.
 A downstream change is not merged until the upstream one is applied.
 
