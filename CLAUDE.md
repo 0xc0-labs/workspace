@@ -362,8 +362,9 @@ What runs today:
 - **OpenObserve** for logs, metrics and traces, fed by the OpenTelemetry
   Operator's collectors.
 - **The applications**: the `offby1.cc` landing page and Mautic, from
-  `gitops/apps/`; each site's own Strapi, in `cms/` of its repo
-  (`artistlabco.com`'s first; 0xc0-labs/workspace#202). Every application repo
-  carries the `app` topic.
+  `gitops/apps/`; Plane, Matchmark's tracker (the org's work stays on the
+  project board), reached over WARP only (0xc0-labs/workspace#247); each
+  site's own Strapi, in `cms/` of its repo (`artistlabco.com`'s first;
+  0xc0-labs/workspace#202). Every application repo carries the `app` topic.
 
 Every VM carries `prevent_destroy`.
