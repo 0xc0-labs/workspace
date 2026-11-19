@@ -75,6 +75,13 @@ this, never a follow-up:
   browser and records no session replay, so it needs no consent banner. The
   client token is public by design, and lives in Vault like any credential.
 
+**Plane is the exception to the rule above** (operator decision, 2026-11-19;
+workspace#250): it has only what the cluster takes of every pod and route,
+its logs through the collector and the metrics of its route and pods. It
+sends no traces and no RUM, and nothing is built for it. It is a third-party
+tool the org uses to track Matchmark's projects, an external piece that could
+be any other tracker.
+
 **Vault Secrets Operator, not External Secrets Operator** (operator decision,
 2026-09-30). Vault is the only backend, so ESO's reach across backends buys
 nothing, while VSO renews dynamic secrets' leases (the data services'
