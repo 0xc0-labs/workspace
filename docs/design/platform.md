@@ -346,14 +346,14 @@ and no second engine or server runs for it.
 2026-11-18; workspace#247): Matchmark's software factory will read and write
 its work there, and the org's board stays the source of truth for the org's
 work. It is on the WARP-only path, `https://plane.int.0xc0.cc`, and never
-public: no public name and no Cloudflare Access application. Its
-database is one more on the shared PostgreSQL, as every application's. Its
-Valkey, RabbitMQ and object store are its chart's own, in its namespace,
-`plane`. The object store is for Plane's attachments alone, the first of the
-two exceptions to the [discarded](../discarded.md) object store in the
-cluster: Plane signs every upload with a presigned POST, and R2 signs only
-GET, HEAD, PUT and DELETE. Its namespace enforces `baseline`, not `restricted`, because its
-images declare no user and run as root and its chart sets no security
+public: no public name and no Cloudflare Access application. Its database is
+one more on the shared PostgreSQL, as every application's. Its Valkey,
+RabbitMQ and object store are its chart's own, in its namespace, `plane`.
+The object store is for Plane's attachments alone, the first of the two
+exceptions to the [discarded](../discarded.md) object store in the cluster:
+Plane signs every upload with a presigned POST, and R2 signs only GET, HEAD,
+PUT and DELETE. Its namespace enforces `baseline`, not `restricted`, because
+its images declare no user and run as root and its chart sets no security
 context; tightening it is a later change, 0xc0-labs/gitops#418. How it is
 deployed and operated is `gitops`' own, in its
 [`apps/plane/README.md`](https://github.com/0xc0-labs/gitops/blob/main/apps/plane/README.md).

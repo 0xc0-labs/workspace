@@ -69,8 +69,8 @@ explicit decision from the operator.
   refuses an endpoint that is not HTTPS or that resolves to a private
   address.
 - The controller of Matchmark's agentgateway reads the Secrets and
-  ConfigMaps of every namespace (accepted on 2026-11-19, the operator told
-  and leaving it to the orchestrator; workspace#252): its chart cannot
+  ConfigMaps of every namespace (accepted on 2026-11-19: the operator was
+  told and left it to the orchestrator; workspace#252): its chart cannot
   narrow its `ClusterRole`, so whoever compromises that pod reads every
   Secret of the cluster. What limits it is that the controller writes in
   `matchmark` alone, builds its configuration from that namespace alone, and

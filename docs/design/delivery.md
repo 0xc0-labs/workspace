@@ -76,11 +76,11 @@ repo's one version, in one promote PR that moves both pins, so a site's
 front and its CMS are never at different versions. The shared workflows in
 `.github` build each.
 
-**An application whose images are all per-service is released with
-`own-image: false`** (operator decision, 2026-11-19; .github#201). Matchmark
-builds one image per service, `ghcr.io/0xc0-labs/matchmark-<service>`, and
-none named after the repo, so `release`, `release-candidate` and `pin-check`
-take it with `own-image: false`. How the workflows take it is in the
+**An application may have one image per service and none named after its
+repo** (operator decision, 2026-11-19; workspace#252). Matchmark does:
+`ghcr.io/0xc0-labs/matchmark-<service>`. `release`, `release-candidate` and
+`pin-check` take such an application with `own-image: false` (.github#201).
+How the workflows take it is in the
 [`.github` README](https://github.com/0xc0-labs/.github/blob/main/README.md#application-repos).
 
 **`gitops` merges through a merge queue** (operator decision, 2026-10-12;
@@ -136,8 +136,8 @@ runner each job asks for is in the
 [`.github` README](https://github.com/0xc0-labs/.github/blob/main/README.md).
 
 **A Python repo checks its code with `python-check`**, as a Node repo does
-with `node-check` (operator decision, 2026-11-19; .github#199): Matchmark's
-checks run through it. How a repo calls it is in the
+with `node-check` (2026-11-19; .github#199): Matchmark's checks run through
+it. How a repo calls it is in the
 [`.github` README](https://github.com/0xc0-labs/.github/blob/main/README.md#application-repos).
 
 **Integration tests bring their own PostgreSQL, from mise** (operator
