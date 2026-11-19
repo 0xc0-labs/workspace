@@ -68,3 +68,11 @@ explicit decision from the operator.
   ranges, and internal services stay closed at the network layer. Strapi
   refuses an endpoint that is not HTTPS or that resolves to a private
   address.
+- The controller of Matchmark's agentgateway reads the Secrets and
+  ConfigMaps of every namespace (accepted on 2026-11-19: the operator was
+  told and left it to the orchestrator; workspace#252): its chart cannot
+  narrow its `ClusterRole`, so whoever compromises that pod reads every
+  Secret of the cluster. What limits it is that the controller writes in
+  `matchmark` alone, builds its configuration from that namespace alone, and
+  takes no connection from outside it. The detail is in `gitops`'
+  [`apps/matchmark/README.md`](https://github.com/0xc0-labs/gitops/blob/main/apps/matchmark/README.md#what-the-controller-can-reach).
