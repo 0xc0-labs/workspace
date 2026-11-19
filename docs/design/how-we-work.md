@@ -101,8 +101,9 @@ works as above.
   Every minute it closes the tab of each session that printed its last line,
   removes that session's worktree when nothing in it exists only there, and
   starts a session per free slot, on the Ready issues blocked by nothing open,
-  by priority. Two slots in the application repos; one in the others, whose
-  merges end in applies that go in order (`herdr/autopilot.conf`). It never
+  by priority. Three slots in `matchmark`, two in the other application repos
+  and in `packages`, one in the others, whose merges end in applies that go
+  in order (`herdr/autopilot.conf`). It never
   closes a session that is working or waiting on the operator. Its look at
   the board is a script's, not a turn of the model: one small GraphQL query,
   one point of the GitHub API's 5,000 an hour, and none while every slot is
