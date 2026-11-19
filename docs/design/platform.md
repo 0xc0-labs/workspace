@@ -153,8 +153,9 @@ data disks included, and that is what the timed restore tests.
 2026-10-11; workspace#88), the one object store for them: uploads and
 anything else an application keeps as objects. Longhorn keeps the databases
 and what needs a filesystem; RustFS keeps only the OpenTofu state. Plane's
-attachments are the one exception, in the object store of its chart (Plane,
-below). One bucket per application and environment, named `<namespace>-<purpose>`
+attachments and Matchmark's artifacts are the two exceptions, each in an
+object store of its own in the cluster (Plane and Matchmark, below). One
+bucket per application and environment, named `<namespace>-<purpose>`
 (`artistlabco-com-media`, `artistlabco-com-staging-media`), created by
 `infrastructure`'s Cloudflare root with a western Europe location hint, its
 `r2.dev` URL off. A bucket whose files are public is attached to a hostname
@@ -348,14 +349,45 @@ work. It is on the WARP-only path, `https://plane.int.0xc0.cc`, and never
 public: no public name and no Cloudflare Access application. Its
 database is one more on the shared PostgreSQL, as every application's. Its
 Valkey, RabbitMQ and object store are its chart's own, in its namespace,
-`plane`. The object store is for Plane's attachments alone, the one exception
-to the [discarded](../discarded.md) object store in the cluster: Plane signs
-every upload with a presigned POST, and R2 signs only GET, HEAD, PUT and
-DELETE. Its namespace enforces `baseline`, not `restricted`, because its
+`plane`. The object store is for Plane's attachments alone, the first of the
+two exceptions to the [discarded](../discarded.md) object store in the
+cluster: Plane signs every upload with a presigned POST, and R2 signs only
+GET, HEAD, PUT and DELETE. Its namespace enforces `baseline`, not `restricted`, because its
 images declare no user and run as root and its chart sets no security
 context; tightening it is a later change, 0xc0-labs/gitops#418. How it is
 deployed and operated is `gitops`' own, in its
 [`apps/plane/README.md`](https://github.com/0xc0-labs/gitops/blob/main/apps/plane/README.md).
+
+**Matchmark is one application in `gitops`, with a gateway of its own**
+(operator decisions, 2026-11-19; workspace#252): `apps/matchmark/prod`, in
+the namespace `matchmark`, reached over WARP only. `api.matchmark.int.0xc0.cc`
+is its API, `app.matchmark.int.0xc0.cc` will be its console, and
+`matchmark.int.0xc0.cc` is kept for the product's future front;
+`matchmark.dev` is not used yet. The wildcard for `*.int.0xc0.cc` covers one
+label, so those names have a certificate and a listener of their own on
+Traefik's Gateway, `internal-matchmark` (0xc0-labs/gitops#425).
+agentgateway 1.7.0 is part of the application, not a shared service: its
+controller, its CRDs and its Gateway are deployed from the application's
+folder. That is an exception to the rule that a cluster-scoped kind an
+application needs goes through `platform/`: Matchmark's Application alone
+has an Argo CD project, `matchmark`, that admits `CustomResourceDefinition`,
+`ClusterRole` and `ClusterRoleBinding` besides `Namespace`
+(0xc0-labs/gitops#427). The cost is that a change under
+`apps/matchmark/prod` can create cluster-wide permissions, so every PR there
+is reviewed with that in mind; what the controller reads is an
+[accepted risk](../accepted-risks.md). Its database is one more on the
+shared PostgreSQL, as every application's, with no server of its own
+(0xc0-labs/gitops#423). Its artifacts are in a RustFS, one server in its
+namespace with a 10Gi Longhorn volume, the second exception to the
+[discarded](../discarded.md) object store in the cluster: its design asks
+for it, and the operator decided for it "for this application, for now", not
+R2 (0xc0-labs/gitops#429). Its API signs its agent tokens with a Transit key
+generated inside Vault, `matchmark-agent-tokens`; the pipeline's roles have
+nothing on Transit's keys, so a key is created by hand, imported or
+generated (0xc0-labs/vault#91), as the
+[`vault` README](https://github.com/0xc0-labs/vault/blob/main/README.md#transit-keys-that-never-leave-vault)
+says. How it is deployed and operated is `gitops`' own, in its
+[`apps/matchmark/README.md`](https://github.com/0xc0-labs/gitops/blob/main/apps/matchmark/README.md).
 
 **Application repos carry the `app` topic** (operator decision,
 2026-10-09), set in `.github`'s `terraform.tfvars` with the others.

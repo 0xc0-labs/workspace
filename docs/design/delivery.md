@@ -53,6 +53,9 @@ checks and image run on GitHub's runners, and its release, which logs in to
 Vault for the promoter's token, on the self-hosted ones (below). How a repo
 calls it is in the
 [`.github` README](https://github.com/0xc0-labs/.github/blob/main/README.md#application-repos).
+Matchmark has no staging either, until its console exists (operator
+decision, 2026-11-19; workspace#252): every merge to `main` of `matchmark` is
+a release, with a prod PR in `gitops`.
 
 **Promotion is a PR in `gitops`, and the image is never rebuilt.** An rc and a
 release each tag the same digest with their version, and open a PR in `gitops`
@@ -72,6 +75,13 @@ own image. Both are built from the same commit and released under the
 repo's one version, in one promote PR that moves both pins, so a site's
 front and its CMS are never at different versions. The shared workflows in
 `.github` build each.
+
+**An application whose images are all per-service is released with
+`own-image: false`** (operator decision, 2026-11-19; .github#201). Matchmark
+builds one image per service, `ghcr.io/0xc0-labs/matchmark-<service>`, and
+none named after the repo, so `release`, `release-candidate` and `pin-check`
+take it with `own-image: false`. How the workflows take it is in the
+[`.github` README](https://github.com/0xc0-labs/.github/blob/main/README.md#application-repos).
 
 **`gitops` merges through a merge queue** (operator decision, 2026-10-12;
 workspace#139). Its ruleset requires a branch to be up to date with `main`,
@@ -124,6 +134,11 @@ and pnpm runs the build scripts of the packages it is told to (`allowBuilds`,
 which replaced `onlyBuiltDependencies` in pnpm 11) and no others. Which
 runner each job asks for is in the
 [`.github` README](https://github.com/0xc0-labs/.github/blob/main/README.md).
+
+**A Python repo checks its code with `python-check`**, as a Node repo does
+with `node-check` (operator decision, 2026-11-19; .github#199): Matchmark's
+checks run through it. How a repo calls it is in the
+[`.github` README](https://github.com/0xc0-labs/.github/blob/main/README.md#application-repos).
 
 **Integration tests bring their own PostgreSQL, from mise** (operator
 decision, 2026-10-12; workspace#93). It was decided while the checks ran on
