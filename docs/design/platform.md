@@ -388,7 +388,9 @@ generated (0xc0-labs/vault#91), as the
 [`vault` README](https://github.com/0xc0-labs/vault/blob/main/README.md#transit-keys-that-never-leave-vault)
 says. Its agents run in that namespace too, since its phase 1
 (workspace#255). **Temporal** is a second Argo CD Application,
-`matchmark-temporal`, from `apps/matchmark/temporal`, in the namespace
+`matchmark-temporal`, from `apps/matchmark-temporal/prod`, a folder that
+follows `apps/<application>/<environment>/` as every application's does
+(operator decision, 2026-11-20; workspace#262), in the namespace
 `matchmark` (operator decision, 2026-11-19: the same namespace, because the
 API talks to that Temporal as it does to the gateway; 0xc0-labs/gitops#451).
 Its two databases are two more on the shared PostgreSQL, with no pooler in
