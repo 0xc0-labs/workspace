@@ -402,12 +402,12 @@ Its panel is `temporal.matchmark.int.0xc0.cc`, reached over WARP only, with
 no login of its own, as the
 [`gitops` README](https://github.com/0xc0-labs/gitops/blob/main/apps/matchmark/README.md#temporal)
 says: an [accepted risk](../accepted-risks.md) until Zitadel (operator
-decision, 2026-11-20; workspace#260). **The factory worker** is one Deployment of the application,
-`factory-worker`, that takes runs from that Temporal and runs each agent
-through the namespace's gateway (0xc0-labs/gitops#468). The operator's own
-workspace runs on the Claude Agent SDK, paid by the operator's Claude
-subscription (operator decision, 2026-11-19; the harness is chosen per
-workspace, as
+decision, 2026-11-20; workspace#260). **The factory worker** is one
+Deployment of the application, `factory-worker`, that takes runs from that
+Temporal and runs each agent through the namespace's gateway
+(0xc0-labs/gitops#468). The operator's own workspace runs on the Claude Agent
+SDK, paid by the operator's Claude subscription (operator decision,
+2026-11-19; the harness is chosen per workspace, as
 [`matchmark`'s `docs/platform/workspaces.md`](https://github.com/0xc0-labs/matchmark/blob/main/docs/platform/workspaces.md)
 records it): the worker reads that subscription's token from Vault,
 `apps/matchmark/claude-subscription`, which the operator writes, and nothing
