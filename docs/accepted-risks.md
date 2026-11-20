@@ -104,3 +104,21 @@ explicit decision from the operator.
   [`apps/matchmark/README.md`](https://github.com/0xc0-labs/gitops/blob/main/apps/matchmark/README.md#the-factory-worker)
   and its
   [route](https://github.com/0xc0-labs/gitops/blob/main/apps/matchmark/README.md#the-subscription-route).
+- The containers of `vm-rke2-04` run without an SELinux label (accepted by
+  the operator on 2026-11-20; workspace#266): gVisor's `runsc`, which
+  isolates the sandboxes Matchmark's coding agents will run in, refuses a
+  container that carries a label; containerd labels all of a node's
+  containers or none; and the Proxmox host has no room for a node of the
+  sandboxes' own. Every pod of that node runs unlabelled, the shared
+  PostgreSQL, MariaDB, a Vault replica and Plane among them, so SELinux
+  would not hold a container that broke out of its runtime from the others'
+  files. What limits it is that the host stays Enforcing; that the pods keep
+  their Pod Security level, seccomp and dropped capabilities; that the three
+  server nodes label their containers as before; and that no service on the
+  cluster is critical yet, in the operator's words. What ends it is a node
+  of the sandboxes' own, or moving the data services to the nodes that
+  label (measured on 2026-11-20: about 1 CPU and 3.5 GiB to move, which fits
+  in the other three), which the operator turned down for now: "B de
+  momento.. no nos sobran recursos". The detail is in `infrastructure`'s
+  [README](https://github.com/0xc0-labs/infrastructure/blob/main/README.md#gvisor-on-vm-rke2-04),
+  section "gVisor on vm-rke2-04".
