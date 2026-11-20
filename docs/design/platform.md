@@ -393,9 +393,15 @@ says. Its agents run in that namespace too, since its phase 1
 API talks to that Temporal as it does to the gateway; 0xc0-labs/gitops#451).
 Its two databases are two more on the shared PostgreSQL, with no pooler in
 front until one is needed (operator decision, 2026-11-19;
-0xc0-labs/gitops#450, 0xc0-labs/vault#93). Its panel is
-`temporal.matchmark.int.0xc0.cc`, reached over WARP only, with no login of
-its own, as the
+0xc0-labs/gitops#450, 0xc0-labs/vault#93). Temporal's own connection pools
+are bounded in its chart's values, so that it cannot take every connection of
+the shared server, and the operator kept that bound on 2026-11-20
+(workspace#260); the figures stay in `gitops`'
+[README](https://github.com/0xc0-labs/gitops/blob/main/apps/matchmark/README.md#temporal).
+Its panel is `temporal.matchmark.int.0xc0.cc`, reached over WARP only, with
+no login of its own until Zitadel: an
+[accepted risk](../accepted-risks.md) (operator decision, 2026-11-20;
+workspace#260), as the
 [`gitops` README](https://github.com/0xc0-labs/gitops/blob/main/apps/matchmark/README.md#temporal)
 says. **The factory worker** is one Deployment of the application,
 `factory-worker`, that takes runs from that Temporal and runs each agent

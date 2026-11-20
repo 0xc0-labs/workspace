@@ -76,3 +76,31 @@ explicit decision from the operator.
   `matchmark` alone, builds its configuration from that namespace alone, and
   takes no connection from outside it. The detail is in `gitops`'
   [`apps/matchmark/README.md`](https://github.com/0xc0-labs/gitops/blob/main/apps/matchmark/README.md#what-the-controller-can-reach).
+- Temporal's panel in Matchmark has no login of its own, until Zitadel is
+  deployed in Matchmark's phase 4 (accepted by the operator on 2026-11-20;
+  workspace#260): Temporal ships with no authentication, and the cluster has
+  no identity provider to log in against yet. Whoever reaches the panel sees
+  every run with its input and its output, and can start, cancel or terminate
+  one. What limits it is that the panel is reached over WARP only, which today
+  is the operator alone, and that inside the cluster only the panel, the API,
+  the worker and the Job that creates Temporal's namespace reach its
+  frontend. What ends it is the panel logging in through Zitadel, which
+  Temporal's UI supports (OIDC), with the server asking for a token. The
+  detail is in `gitops`'
+  [`apps/matchmark/README.md`](https://github.com/0xc0-labs/gitops/blob/main/apps/matchmark/README.md#temporal).
+- The pod of Matchmark's factory worker holds the token of the operator's
+  Claude subscription (accepted by the operator on 2026-11-20;
+  workspace#260): the operator's own workspace runs on the Claude Agent SDK,
+  paid by that subscription, and the SDK's process needs the token where it
+  runs. Whoever gets into that pod, or reads its Secret, can spend the
+  operator's plan from elsewhere until the token is revoked. What limits it is
+  that the token can only make model requests and lasts one year; that
+  nothing connects to the worker; that the agents it runs today have no
+  tools, so an idea that tries to manipulate one has nothing to read the
+  token with; and that the token is in Vault, at
+  `apps/matchmark/claude-subscription`, and in that pod and nowhere else.
+  What ends an incident is the operator revoking the token and writing a new
+  one in Vault. The detail is in `gitops`'
+  [`apps/matchmark/README.md`](https://github.com/0xc0-labs/gitops/blob/main/apps/matchmark/README.md#the-factory-worker)
+  and its
+  [route](https://github.com/0xc0-labs/gitops/blob/main/apps/matchmark/README.md#the-subscription-route).
