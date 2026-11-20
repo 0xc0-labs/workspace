@@ -133,10 +133,11 @@ explicit decision from the operator.
   its adapter sends a fixed list of requests; that the App has no `workflows`
   permission, so GitHub refuses its pushes to `.github/workflows`; and that
   nothing of value lives in that repo. What the operator accepted is that
-  repo alone: before the factory works in any other, a lock that GitHub
-  itself enforces must exist, and the App is installed on the repos it works
-  on, selected one by one, never on all of the organization's. What ends it
-  is that lock. The detail is in `matchmark`'s
+  repo alone: the App must be installed on the repos it works on and no
+  others, selected one by one, never on all of the organization's, and
+  before the factory works in any other repo, a lock that GitHub itself
+  enforces must exist. What ends it is that lock. The detail is in
+  `matchmark`'s
   [`docs/factory/git-host.md`](https://github.com/0xc0-labs/matchmark/blob/main/docs/factory/git-host.md#it-opens-pull-requests-and-never-merges),
   section "It opens pull requests and never merges".
 - A sandbox of Matchmark's coding agent holds the token of the operator's
