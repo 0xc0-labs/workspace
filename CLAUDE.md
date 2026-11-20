@@ -22,12 +22,15 @@ it too.
 | `artistlabco.com/` | `artistlabco.com` | the artist's site and its Strapi, in `cms/`   |
 | `matchmark/`     | `matchmark`       | Matchmark, the platform for applications made of AI agents; its design in `docs/` |
 | `matchmark-config/` | `matchmark-config` | Matchmark's definitions for the org's own workspace |
+| `matchmark-playground/` | `matchmark-playground` | the repo Matchmark's factory opens its pull requests in; nothing of value lives there |
 | `app-*/`         | various           | applications                                    |
 
 Dependency order: `.github` → `infrastructure` → `gitops` → `vault` →
 `packages` → the applications (`offby1.cc`, `artistlabco.com`, `matchmark`,
 `app-*`), which pin its packages. `matchmark-config` comes after `matchmark`:
 it holds definitions for the platform `matchmark` builds.
+`matchmark-playground` comes after `matchmark` too: it is where the
+platform's factory opens its pull requests.
 `claude-config` stands apart: nothing depends on it at deploy time.
 A downstream change is not merged until the upstream one is applied.
 
