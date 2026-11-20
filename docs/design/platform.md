@@ -386,7 +386,39 @@ generated inside Vault, `matchmark-agent-tokens`; the pipeline's roles have
 nothing on Transit's keys, so a key is created by hand, imported or
 generated (0xc0-labs/vault#91), as the
 [`vault` README](https://github.com/0xc0-labs/vault/blob/main/README.md#transit-keys-that-never-leave-vault)
-says. How it is deployed and operated is `gitops`' own, in its
+says. Its agents run in that namespace too, since its phase 1
+(workspace#255). **Temporal** is a second Argo CD Application,
+`matchmark-temporal`, from `apps/matchmark/temporal`, in the namespace
+`matchmark` (operator decision, 2026-11-19: the same namespace, because the
+API talks to that Temporal as it does to the gateway; 0xc0-labs/gitops#451).
+Its two databases are two more on the shared PostgreSQL, with no pooler in
+front until one is needed (operator decision, 2026-11-19;
+0xc0-labs/gitops#450, 0xc0-labs/vault#93). Its panel is
+`temporal.matchmark.int.0xc0.cc`, reached over WARP only, with no login of
+its own, as the
+[`gitops` README](https://github.com/0xc0-labs/gitops/blob/main/apps/matchmark/README.md#temporal)
+says. **The factory worker** is one Deployment of the application,
+`factory-worker`, that takes runs from that Temporal and runs each agent
+through the namespace's gateway (0xc0-labs/gitops#468). The operator's own
+workspace runs on the Claude Agent SDK, paid by the operator's Claude
+subscription (operator decision, 2026-11-19; the harness is chosen per
+workspace, as
+[`matchmark`'s `docs/platform/workspaces.md`](https://github.com/0xc0-labs/matchmark/blob/main/docs/platform/workspaces.md)
+records it): the worker reads that subscription's token from Vault,
+`apps/matchmark/claude-subscription`, which the operator writes, and nothing
+else mounts it
+([the worker](https://github.com/0xc0-labs/gitops/blob/main/apps/matchmark/README.md#the-factory-worker),
+[the route](https://github.com/0xc0-labs/gitops/blob/main/apps/matchmark/README.md#the-subscription-route)).
+**The gateway answers over WARP under the API's name**,
+`api.matchmark.int.0xc0.cc`, for the model routes alone, so that `mm`,
+Matchmark's command, runs an agent from the operator's machine through the
+same gateway as the worker (0xc0-labs/gitops#456;
+[the route](https://github.com/0xc0-labs/gitops/blob/main/apps/matchmark/README.md#the-gateway-over-warp)).
+What phase 1 showed and measured is in Matchmark's own
+[`docs/roadmap.md`](https://github.com/0xc0-labs/matchmark/blob/main/docs/roadmap.md)
+and
+[`docs/open-decisions.md`](https://github.com/0xc0-labs/matchmark/blob/main/docs/open-decisions.md).
+How it is deployed and operated is `gitops`' own, in its
 [`apps/matchmark/README.md`](https://github.com/0xc0-labs/gitops/blob/main/apps/matchmark/README.md).
 
 **Application repos carry the `app` topic** (operator decision,

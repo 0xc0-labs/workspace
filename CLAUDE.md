@@ -364,9 +364,9 @@ What runs today:
 - **The applications**: the `offby1.cc` landing page and Mautic, from
   `gitops/apps/`; Plane, Matchmark's tracker (the org's work stays on the
   project board), reached over WARP only (0xc0-labs/workspace#247);
-  Matchmark, with a gateway of its own, reached over WARP only
-  (0xc0-labs/workspace#252); each site's own Strapi, in `cms/` of its
-  repo (`artistlabco.com`'s first; 0xc0-labs/workspace#202). Every
-  application repo carries the `app` topic.
+  Matchmark, with a gateway, a Temporal and a factory worker of its own,
+  reached over WARP only (0xc0-labs/workspace#252, 0xc0-labs/workspace#255);
+  each site's own Strapi, in `cms/` of its repo (`artistlabco.com`'s first;
+  0xc0-labs/workspace#202). Every application repo carries the `app` topic.
 
 Every VM carries `prevent_destroy`.
