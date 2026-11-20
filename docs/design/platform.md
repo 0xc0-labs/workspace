@@ -26,6 +26,16 @@ component (Longhorn, Traefik, CrowdSec, Vault, monitoring, applications) from
 the `gitops` repo, which is public: no repo credentials. A private repo would
 get a read-only GitHub App, its key from Vault through Ansible the same way.
 
+**The worker node, `vm-rke2-04`, also runs gVisor as a second container
+runtime, for Matchmark's sandboxes** (operator decision, 2026-11-20;
+workspace#270, from the test in workspace#266). The RuntimeClass `gvisor`
+puts a pod under it, and `runsc` refuses a container that carries an SELinux
+label, so that node labels none of its containers: an
+[accepted risk](../accepted-risks.md). A small file- and process-heavy
+workload took 2.8 times as long under gVisor as under the default runtime.
+What the cluster runs and how is in `gitops`'
+[`platform/gvisor/README.md`](https://github.com/0xc0-labs/gitops/blob/main/platform/gvisor/README.md).
+
 **Vault runs in the cluster** (operator decision, 2026-09-24). A running
 cluster never needs Vault to start: the RKE2 token and ArgoCD's admin password
 are already in files only root reads on the servers, written there by Ansible,

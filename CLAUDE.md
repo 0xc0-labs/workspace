@@ -357,7 +357,9 @@ What runs today:
   inside the network and RustFS stays closed.
 - **One RKE2 cluster** on Rocky Linux in `platform`, behind the HAProxy load
   balancers that also carry the public tunnel. ArgoCD deploys everything else
-  in it from `gitops`. The `vm-lb` pair and the `vm-rke2` nodes are its VMs.
+  in it from `gitops`. The `vm-lb` pair and the `vm-rke2` nodes are its VMs,
+  and its worker node also runs gVisor for Matchmark's sandboxes
+  (workspace#266).
 - **Vault** in the cluster, holding every secret. CI logs in with GitHub's
   OIDC token, one JWT role per repo, and no repo holds a secret or an Actions
   secret. The cluster's components read theirs through Vault Secrets
