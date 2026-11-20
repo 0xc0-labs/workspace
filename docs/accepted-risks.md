@@ -98,9 +98,10 @@ explicit decision from the operator.
   nothing connects to the worker; that the agents it runs today have no
   tools, so an idea that tries to manipulate one has nothing to read the
   token with; and that the token is in Vault, at
-  `apps/matchmark/claude-subscription`, and in that pod and nowhere else.
-  What ends an incident is the operator revoking the token and writing a new
-  one in Vault. The detail is in `gitops`'
+  `apps/matchmark/claude-subscription`, and in that pod and, from phase 2, in
+  the sandboxes' namespace too (see below). What ends an incident is the
+  operator revoking the token and writing a new one in Vault. The detail is
+  in `gitops`'
   [`apps/matchmark/README.md`](https://github.com/0xc0-labs/gitops/blob/main/apps/matchmark/README.md#the-factory-worker)
   and its
   [route](https://github.com/0xc0-labs/gitops/blob/main/apps/matchmark/README.md#the-subscription-route).
@@ -122,3 +123,37 @@ explicit decision from the operator.
   momento.. no nos sobran recursos". The detail is in `infrastructure`'s
   [README](https://github.com/0xc0-labs/infrastructure/blob/main/README.md#gvisor-on-vm-rke2-04),
   section "gVisor on vm-rke2-04".
+- Nothing but Matchmark's own code stops its factory from merging a pull
+  request in `matchmark-playground` (accepted by the operator on 2026-11-20;
+  workspace#272): the factory acts on GitHub as an App, `matchmark-bot`, that
+  can write contents, which it needs to create a branch and a commit; the
+  repo is private, in a free organization, which cannot have a ruleset; and
+  an App that can push can merge. What limits it is that the factory's port
+  to the Git host has no operation that merges, approves or force-pushes, and
+  its adapter sends a fixed list of requests; that the App has no `workflows`
+  permission, so GitHub refuses its pushes to `.github/workflows`; and that
+  nothing of value lives in that repo. What the operator accepted is that
+  repo alone: before the factory works in any other, a lock that GitHub
+  itself enforces must exist, and the App is installed on the repos it works
+  on, selected one by one, never on all of the organization's. What ends it
+  is that lock. The detail is in `matchmark`'s
+  [`docs/factory/git-host.md`](https://github.com/0xc0-labs/matchmark/blob/main/docs/factory/git-host.md#it-opens-pull-requests-and-never-merges),
+  section "It opens pull requests and never merges".
+- A sandbox of Matchmark's coding agent holds the token of the operator's
+  Claude subscription (accepted by the operator on 2026-11-20;
+  workspace#272): in the operator's workspace the coding agent is the Claude
+  Agent SDK, paid by that subscription, and it runs inside the sandbox, so
+  the token is where the agent's own commands run. Vault delivers it to the
+  sandboxes' namespace, `matchmark-sandboxes`, which reads that one path and
+  nothing else (vault#95, applied on 2026-11-20). A coding agent that is
+  manipulated by what it reads could read the token. What limits it is that
+  the commands the agent runs do not inherit the token (the runner sets
+  `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1`), which lowers the risk and does not
+  remove it; that the sandbox's network reaches Matchmark's gateway and a
+  proxy with a fixed list of hosts, and nothing else, DNS included; that the
+  worker looks for the token in the change before it pushes anything; and
+  that the token can only make model requests. What ends an incident is the
+  operator revoking the token and writing a new one in Vault. The detail is
+  in `matchmark`'s
+  [`docs/architecture/sandbox.md`](https://github.com/0xc0-labs/matchmark/blob/main/docs/architecture/sandbox.md#what-the-sandbox-holds),
+  section "What the sandbox holds".
