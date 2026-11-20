@@ -399,11 +399,10 @@ the shared server, and the operator kept that bound on 2026-11-20
 (workspace#260); the figures stay in `gitops`'
 [README](https://github.com/0xc0-labs/gitops/blob/main/apps/matchmark/README.md#temporal).
 Its panel is `temporal.matchmark.int.0xc0.cc`, reached over WARP only, with
-no login of its own until Zitadel: an
-[accepted risk](../accepted-risks.md) (operator decision, 2026-11-20;
-workspace#260), as the
+no login of its own, as the
 [`gitops` README](https://github.com/0xc0-labs/gitops/blob/main/apps/matchmark/README.md#temporal)
-says. **The factory worker** is one Deployment of the application,
+says: an [accepted risk](../accepted-risks.md) until Zitadel (operator
+decision, 2026-11-20; workspace#260). **The factory worker** is one Deployment of the application,
 `factory-worker`, that takes runs from that Temporal and runs each agent
 through the namespace's gateway (0xc0-labs/gitops#468). The operator's own
 workspace runs on the Claude Agent SDK, paid by the operator's Claude
