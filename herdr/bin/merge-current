@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-"""Merges one pull request of the org, and only when its checks are green on a
-head that holds every code change of the repo's default branch (README.md,
-Merging a pull request).
+"""Merges one pull request of the org as it is, once its checks are green, or on
+the current default branch with --current (README.md, Merging a pull request).
 
   merge-current <repo> <number> --subject "<subject>" --body-file <file>
-                [--ready] [--dry-run]
+                [--current] [--watch] [--ready] [--dry-run]
 
 <repo> is a repo of the org by name (`matchmark`). The subject and the body
 are the squash commit's: the subject has 72 characters at most and ends with
@@ -13,16 +12,20 @@ that touches only `docs/`, `spec/` or `*.md` is not code.
 
 Until the pull request is merged, it:
 
-  1. takes the default branch in with `gh pr update-branch` when the head lacks
-     code that branch has: a conflict ends it, for a session to resolve;
+  1. says what code the default branch has that the head lacks, as information,
+     and stops when GitHub reports the pull request as conflicting: it needs a
+     session. With --current it instead takes the default branch in with
+     `gh pr update-branch` when the head lacks code, and a conflict ends it;
   2. waits until the head is green, every 20 seconds for up to 90 minutes, and
      stops at the first red: its checks are green, and so is every workflow
      run of that head (below);
   3. with --ready, marks a draft ready once it is green, waits up to two
      minutes for the workflow run that starts then, and waits for it to be
      green again; without --ready a draft is refused;
-  4. looks once more for code the default branch got meanwhile, and starts over
-     if there is any (five rounds at most), else squash merges and confirms it.
+  4. looks once more at the head, and starts over if it moved (five rounds at
+     most), else squash merges that head and confirms it. With --current it
+     starts over too when the default branch got code meanwhile, and without it
+     code landing on the default branch starts no round.
 
 Checks alone are not enough: a job that waits for another has no check until it
 is queued, and a pull request marked ready starts its workflows again on the
@@ -31,13 +34,19 @@ only when its checks are (at least one, none failed, cancelled or pending) and
 at least one workflow run of its sha exists, every run is completed, and the
 newest run of each workflow did not fail (a re-run supersedes the failed run).
 
+After the merge it prints the merge commit whose `ci` run is the one to look at.
+With --watch it waits for that run on the default branch, polling every 30
+seconds: no such run in ten minutes is said in a line and ends 0, a pass ends 0,
+and a failure names the failed jobs and ends 4.
+
 A repo whose default branch has a merge queue is not merged here: the queue is
-the gate. --dry-run prints each step with the state it finds now, and changes
-nothing.
+the gate. --dry-run prints the mode and each step with the state it finds now,
+and changes nothing.
 
 Every line starts with the UTC time. Exit status: 0 merged (or the dry run
-done), 1 refused, red or timed out, 2 the default branch cannot be taken in and
-the pull request needs a session, 3 merge queue.
+done), 1 refused, red or timed out, 2 the pull request conflicts, or with
+--current the default branch cannot be taken in, and it needs a session, 3 merge
+queue, 4 merged, and the `ci` run of the merge commit failed (--watch).
 """
 import argparse
 import collections
@@ -57,6 +66,8 @@ READY_WAIT = 120
 SHORT_POLL = 5
 HEAD_TIMEOUT = 120
 MERGE_RETRY_WAIT = 30
+WATCH_POLL = 30
+WATCH_APPEAR = 10 * 60
 CALL_TIMEOUT = 120
 POLL_ERRORS = 5
 RED = ("fail", "cancel")
@@ -186,6 +197,13 @@ def culprits(checks, runs, unfinished):
     return ", ".join(named)
 
 
+def describe_missing(branch, missing):
+    if not missing:
+        return f"the head holds every code change of {branch}"
+    return (f"{branch} has {len(missing)} code file{'s' if len(missing) != 1 else ''} "
+            f"the head lacks ({sample(missing)})")
+
+
 def sample(names):
     return ", ".join(names[:3]) + (", ..." if len(names) > 3 else "")
 
@@ -206,7 +224,7 @@ class Pull:
 
     def view(self):
         return json.loads(out("pr", "view", self.number, "-R", self.slug,
-                              "--json", "state,isDraft,headRefOid,baseRefName"))
+                              "--json", "state,isDraft,headRefOid,baseRefName,mergeable"))
 
     def checks(self):
         p = call("pr", "checks", self.number, "-R", self.slug, "--json", "name,bucket")
@@ -222,12 +240,27 @@ class Pull:
     def runs(self, head):
         return json.loads(out(
             "api", f"repos/{self.slug}/actions/runs?head_sha={head}&per_page=100", "--jq",
-            "[.workflow_runs[] | {id, workflow_id, name, status, conclusion, created_at}]"))
+            "[.workflow_runs[] | {id, workflow_id, name, status, conclusion, created_at, "
+            "head_branch, html_url}]"))
 
     def code_missing(self, head):
         names = out("api", f"repos/{self.slug}/compare/{head}...{self.branch}", "--jq",
                     ".files[]? | .filename, (.previous_filename // empty)").splitlines()
         return [name for name in names if is_code(name)]
+
+    def settled(self, view):
+        """The view once GitHub has computed whether the pull request merges."""
+        for _ in range(HEAD_TIMEOUT // SHORT_POLL):
+            if view["mergeable"] != "UNKNOWN":
+                break
+            time.sleep(SHORT_POLL)
+            view = self.view()
+        return view
+
+    def refuse_conflict(self, view):
+        if view["mergeable"] == "CONFLICTING":
+            raise Stop(2, f"{self.tag}: it conflicts with {self.branch} (GitHub reports it as "
+                          "conflicting); it needs a session to resolve it")
 
     def take_branch_in(self, head):
         p = call("pr", "update-branch", self.number, "-R", self.slug)
@@ -279,6 +312,70 @@ class Pull:
         raise Stop(1, f"{self.tag}: not green in {CHECKS_TIMEOUT // 60} minutes: "
                       f"{culprits(checks, runs, True) or 'nothing reported'}")
 
+    def merge_commit(self):
+        """The squash commit's sha, once GitHub reports it."""
+        for _ in range(HEAD_TIMEOUT // SHORT_POLL):
+            commit = None
+            try:
+                p = call("pr", "view", self.number, "-R", self.slug, "--json", "mergeCommit")
+                if not p.returncode:
+                    commit = (json.loads(p.stdout).get("mergeCommit") or {}).get("oid")
+            except (Stop, ValueError):
+                pass
+            if commit:
+                return commit
+            time.sleep(SHORT_POLL)
+        return None
+
+    def failed_jobs(self, run):
+        jobs = json.loads(out("api", f"repos/{self.slug}/actions/runs/{run['id']}/jobs"
+                                     "?per_page=100", "--jq",
+                              "[.jobs[] | {name, status, conclusion}]"))
+        return [j["name"] for j in jobs
+                if j["status"] == "completed" and j["conclusion"] not in RUN_OK]
+
+    def watch_ci(self, commit):
+        """Waits for the default branch's `ci` run of the merge commit."""
+        short = commit[:7]
+        log(f"{self.tag}: watching the ci run of {short} on {self.branch}")
+        shown = None
+        errors = 0
+        for polls in range(CHECKS_TIMEOUT // WATCH_POLL):
+            try:
+                found = [r for r in self.runs(commit)
+                         if r["name"] == "ci" and r["head_branch"] == self.branch]
+                errors = 0
+            except Stop as stop:
+                errors += 1
+                if errors >= POLL_ERRORS:
+                    raise
+                log(f"{self.tag}: {stop.message}; trying again")
+                time.sleep(WATCH_POLL)
+                continue
+            if not found and polls >= WATCH_APPEAR // WATCH_POLL:
+                log(f"{self.tag}: no ci run of {short} on {self.branch} in "
+                    f"{WATCH_APPEAR // 60} minutes: nothing to wait for")
+                return
+            if found:
+                run = max(found, key=lambda r: (r["created_at"], r["id"]))
+                if run["status"] == "completed":
+                    if run["conclusion"] in RUN_OK:
+                        log(f"{self.tag}: the ci run of {short} on {self.branch}: "
+                            f"{run['conclusion']}")
+                        return
+                    try:
+                        jobs = ", ".join(self.failed_jobs(run)) or "none listed"
+                    except (Stop, ValueError) as error:
+                        jobs = f"not listed ({getattr(error, 'message', error)})"
+                    raise Stop(4, f"{self.tag}: the ci run of {short} on {self.branch}: "
+                                  f"{run['conclusion']}; failed jobs: {jobs}; {run['html_url']}")
+                if run["status"] != shown:
+                    log(f"{self.tag}: waiting, ci run of {short}: {run['status']}")
+                    shown = run["status"]
+            time.sleep(WATCH_POLL)
+        raise Stop(1, f"{self.tag}: the ci run of {short} did not finish in "
+                      f"{CHECKS_TIMEOUT // 60} minutes")
+
     def merge(self, subject, body_file, head):
         """Whether the pull request is merged after asking for it."""
         p = call("pr", "merge", self.number, "-R", self.slug, "--squash", "--subject", subject,
@@ -294,14 +391,26 @@ class Pull:
 
 
 def dry_run(pull, args):
-    view = pull.view()
+    view = pull.view() if args.current else pull.settled(pull.view())
     head = view["headRefOid"]
     missing = pull.code_missing(head)
-    if missing:
-        log(f"{pull.tag}: {pull.branch} has code the head lacks ({sample(missing)}): would run "
-            "gh pr update-branch, and the checks would start over on the new head")
+    if args.current:
+        log(f"{pull.tag}: mode --current: takes {pull.branch} in when the head lacks code, and "
+            "looks again for code before merging")
+        if missing:
+            log(f"{pull.tag}: {pull.branch} has code the head lacks ({sample(missing)}): would "
+                "run gh pr update-branch, and the checks would start over on the new head")
+        else:
+            log(f"{pull.tag}: the head holds every code change of {pull.branch}: would not "
+                "update it")
     else:
-        log(f"{pull.tag}: the head holds every code change of {pull.branch}: would not update it")
+        log(f"{pull.tag}: mode as it is (the default): merges the head without taking "
+            f"{pull.branch} in")
+        log(f"{pull.tag}: {describe_missing(pull.branch, missing)}: would not update it")
+        if view["mergeable"] == "CONFLICTING":
+            log(f"{pull.tag}: would stop here, it conflicts with {pull.branch} (status 2): it "
+                "needs a session to resolve it")
+            return
     checks, runs = pull.checks(), pull.runs(head)
     log(f"{pull.tag}: checks now: {describe(checks)}")
     log(f"{pull.tag}: workflow runs now: {describe_runs(runs)}")
@@ -315,8 +424,33 @@ def dry_run(pull, args):
     if view["isDraft"]:
         log(f"{pull.tag}: it is a draft: would run gh pr ready, wait up to {READY_WAIT // 60} "
             "minutes for a new workflow run and wait until both are green again")
-    log(f"{pull.tag}: would look again for code on {pull.branch}, then squash merge it "
-        f"with the subject \"{args.subject}\" and the body of {args.body_file}")
+    squash = f"squash merge it with the subject \"{args.subject}\" and the body of {args.body_file}"
+    if args.current:
+        log(f"{pull.tag}: would look again for code on {pull.branch}, then {squash}")
+    else:
+        log(f"{pull.tag}: would look again at the head and for a conflict, then {squash}, "
+            f"whatever code {pull.branch} gets meanwhile")
+    if args.watch:
+        log(f"{pull.tag}: then would wait for the ci run of the merge commit on {pull.branch}, "
+            f"every {WATCH_POLL} seconds: {WATCH_APPEAR // 60} minutes for it to appear (then "
+            "exit 0), exit 4 naming the failed jobs if it fails")
+    else:
+        log(f"{pull.tag}: then would print the merge commit whose ci run on {pull.branch} is the "
+            "one to look at")
+
+
+def after_merge(pull, args):
+    commit = pull.merge_commit()
+    if args.watch:
+        if not commit:
+            raise Stop(1, f"{pull.tag}: merged, but GitHub reports no merge commit to watch")
+        pull.watch_ci(commit)
+    elif commit:
+        log(f"{pull.tag}: merged as {commit[:7]}: look at the ci run of that commit on "
+            f"{pull.branch} (gh run list -R {pull.slug} --commit {commit})")
+    else:
+        log(f"{pull.tag}: GitHub reports no merge commit yet: look at the latest ci run on "
+            f"{pull.branch}")
 
 
 def run(args):
@@ -354,13 +488,20 @@ def run(args):
             log(f"{pull.tag}: MERGED")
             return
         head = view["headRefOid"]
-        missing = pull.code_missing(head)
-        if missing:
-            log(f"{pull.tag}: {pull.branch} has code the head lacks ({sample(missing)}): "
-                "taking it in")
-            pull.take_branch_in(head)
-            view = pull.view()
+        if args.current:
+            missing = pull.code_missing(head)
+            if missing:
+                log(f"{pull.tag}: {pull.branch} has code the head lacks ({sample(missing)}): "
+                    "taking it in")
+                pull.take_branch_in(head)
+                view = pull.view()
+                head = view["headRefOid"]
+        else:
+            view = pull.settled(view)
+            pull.refuse_conflict(view)
             head = view["headRefOid"]
+            log(f"{pull.tag}: {describe_missing(pull.branch, pull.code_missing(head))}: "
+                "the head is merged as it is")
         pull.wait_for_green(head)
         if view["isDraft"]:
             known = {r["id"] for r in pull.runs(head)}
@@ -370,14 +511,19 @@ def run(args):
                 "workflows to start again")
             pull.wait_for_new_run(head, known)
             pull.wait_for_green(head)
-        if pull.view()["headRefOid"] != head:
+        view = pull.view()
+        if view["headRefOid"] != head:
             log(f"{pull.tag}: the head moved while its checks ran (round {round_number})")
             continue
-        if pull.code_missing(head):
-            log(f"{pull.tag}: {pull.branch} moved meanwhile (round {round_number})")
-            continue
+        if args.current:
+            if pull.code_missing(head):
+                log(f"{pull.tag}: {pull.branch} moved meanwhile (round {round_number})")
+                continue
+        else:
+            pull.refuse_conflict(pull.settled(view))
         if pull.merge(args.subject, args.body_file, head):
             log(f"{pull.tag}: MERGED")
+            after_merge(pull, args)
             return
         time.sleep(MERGE_RETRY_WAIT)
     raise Stop(1, f"{pull.tag}: not merged after {ROUNDS} rounds")
@@ -398,6 +544,12 @@ def main(argv):
                         help=f"the squash commit's subject: {MAX_SUBJECT} characters at most, "
                              "ending with ' (#<number>)'")
     parser.add_argument("--body-file", required=True, help="the squash commit's body")
+    parser.add_argument("--current", action="store_true",
+                        help="take the default branch in first when the head lacks code, and "
+                             "look again for code before merging")
+    parser.add_argument("--watch", action="store_true",
+                        help="after the merge, wait for the default branch's ci run of the "
+                             "merge commit: status 4 if it fails")
     parser.add_argument("--ready", action="store_true",
                         help="mark a draft ready once its checks are green")
     parser.add_argument("--dry-run", action="store_true",

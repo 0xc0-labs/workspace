@@ -681,20 +681,32 @@ What it cannot see:
 ## Merging a pull request
 
 `bin/merge-current <repo> <number> --subject "<subject>" --body-file <file>
-[--ready] [--dry-run]` merges one pull request of the org, and only when its
-checks are green on a head that holds every code change of the repo's default
-branch (workspace#277). It is what the orchestrator runs to merge several
-pull requests of a repo one after another, once per pull request, in the order
-it wants, stopping at the first status that is not 0. `<repo>` is a repo's name
-(`matchmark`): the org is always `0xc0-labs`. The subject and the body are the
-squash commit's: the subject has 72 characters at most and ends with
-` (#<number>)`, and the body is read from the file.
+[--current] [--watch] [--ready] [--dry-run]` merges one pull request of the
+org once its checks are green, as it is: it does not take the default branch
+in (workspace#277, workspace#280). It is what the orchestrator runs to merge
+several pull requests of a repo one after another, once per pull request, in
+the order it wants, stopping at the first status that is not 0. `<repo>` is a
+repo's name (`matchmark`): the org is always `0xc0-labs`. The subject and the
+body are the squash commit's: the subject has 72 characters at most and ends
+with ` (#<number>)`, and the body is read from the file.
+
+The default is the pull request as it is, because taking the default branch
+in before every merge cost each pull request one more CI pass, ten to twenty
+minutes, one after another (operator decision, 2026-11-22; workspace#280).
+The orchestrator judges instead: it adds `--current` when the pull request
+changes a shared interface, or when the default branch changed one it uses.
+After the merge, `--watch` follows the default branch's own `ci` run.
 
 Until the pull request is merged, it:
 
-1. looks at what the default branch has that the head lacks. A file under
-   `docs/` or `spec/`, or ending in `.md`, is not code: a commit that touches
-   only those is exempt. If code is missing, it runs `gh pr update-branch`;
+1. looks at what the default branch has that the head lacks and prints it as
+   information, the count of code files and the first names, or that nothing
+   is missing. A file under `docs/` or `spec/`, or ending in `.md`, is not
+   code. It does not update the branch. If GitHub reports the pull request as
+   conflicting, it stops with status 2: the pull request needs a session. A
+   conflict GitHub has not computed yet is waited for, two minutes at most.
+   With `--current` it runs `gh pr update-branch` instead when code is
+   missing, and a conflict there is status 2;
 2. waits until the head is green, every 20 seconds for up to 90 minutes, and
    stops at the first red one, naming it. Green is both of: the head's checks
    (at least one, none failed or cancelled, none pending) and its workflow
@@ -708,40 +720,67 @@ Until the pull request is merged, it:
    minutes for a workflow run that did not exist before (a repo's image jobs
    start when a pull request becomes ready), and waits until it is green
    again. Without `--ready` a draft is refused;
-4. looks again for code the default branch got while it waited, and starts over
-   if there is any (five rounds at most); else it squash merges with the head
-   it checked (`--match-head-commit`) and confirms with `gh pr view` that the
-   state is `MERGED`. A refused merge, such as "Base branch was modified", is
-   tried again in the next round.
+4. looks again at the head, and starts over if it moved (five rounds at most),
+   and again for a conflict (status 2); else it squash merges with the head it
+   checked (`--match-head-commit`) and confirms with `gh pr view` that the
+   state is `MERGED`. Code landing on the default branch while it waited
+   starts no round. With `--current` it also looks again for that code, and
+   starts over if there is any. A refused merge, such as "Base branch was
+   modified", is tried again in the next round; a repo whose ruleset requires
+   the branch to be up to date refuses every round as it is, and wants
+   `--current`.
+
+After the merge it prints the merge commit whose `ci` run on the default
+branch is the one to look at. With `--watch` it waits for that run instead:
+the workflow run named `ci` on the default branch for the merge commit,
+polling every 30 seconds. A run that completes with success (skipped and
+neutral count) ends with status 0. A run that fails, is cancelled or times
+out ends with status 4 and the names of its failed jobs.
+If no such run appears in ten minutes, because the repo has none, it says so
+in a line and ends with status 0. A run that has not finished in 90 minutes is
+status 1.
 
 A repo whose default branch has a merge queue is not merged here: the queue is
 the gate, and the command says so and stops before it changes anything.
 
 | Status | Meaning |
 |---|---|
-| 0 | merged (already merged counts), or the dry run printed its steps |
+| 0 | merged (already merged counts), or the dry run printed its steps; with `--watch`, the `ci` run passed or none appeared in ten minutes |
 | 1 | refused (subject, draft, not open, a base other than the default branch, bad arguments), a red check or run, a timeout or a failed `gh` call |
-| 2 | the default branch cannot be taken in, a conflict: the pull request needs a session |
+| 2 | the pull request conflicts with the default branch, or with `--current` the default branch cannot be taken in: it needs a session |
 | 3 | the default branch has a merge queue |
+| 4 | merged, and with `--watch` the `ci` run of the merge commit failed: the default branch is red |
 
 Every line it prints starts with the UTC time. `--dry-run` runs the refusals
-above and then prints each step it would take, with the state it finds now: what
-the head lacks, whether it would update the branch, the checks and the
-workflow runs, whether it would mark the pull request ready, whether it would
-merge. It changes nothing, and a red check or run is a line in it, not a
-status. It needs `python3` and its
-standard library alone, and `gh`, taken from `PATH` or else from mise.
+above and then prints the mode it would use and each step it would take, with
+the state it finds now: what the head lacks, whether it would update the
+branch, the checks and the workflow runs, whether it would mark the pull
+request ready, whether it would merge, and what it would do after. It changes
+nothing, and a red check or run, or a conflict, is a line in it, not a status.
+It needs `python3` and its standard library alone, and `gh`, taken from `PATH`
+or else from mise.
 
 ```
-$ bin/merge-current matchmark 222 --subject "feat(factory-worker): carry the agent's grants in its token (#222)" --body-file body.md --dry-run
-15:48:34 matchmark#222: the head holds every code change of main: would not update it
-15:48:36 matchmark#222: checks now: pending (11 pass, 3 pending, 2 skipping): image-factory-worker / image: pending, image-runner / image: pending, image / image: pending
-15:48:36 matchmark#222: workflow runs now: pending (4 runs): ci: queued
-15:48:36 matchmark#222: would wait until both are green, every 20 seconds for up to 90 minutes
-15:48:36 matchmark#222: would look again for code on main, then squash merge it with the subject "feat(factory-worker): carry the agent's grants in its token (#222)" and the body of body.md
+$ bin/merge-current matchmark 224 --subject "fix(api): start an attempt only from a project member's comment (#224)" --body-file body.md --dry-run
+17:28:34 matchmark#224: mode as it is (the default): merges the head without taking main in
+17:28:34 matchmark#224: the head holds every code change of main: would not update it
+17:28:35 matchmark#224: checks now: pending (5 pass, 1 pending): check / check: pending
+17:28:35 matchmark#224: workflow runs now: pending (4 runs): ci: in_progress
+17:28:35 matchmark#224: would wait until both are green, every 20 seconds for up to 90 minutes
+17:28:35 matchmark#224: would look again at the head and for a conflict, then squash merge it with the subject "fix(api): start an attempt only from a project member's comment (#224)" and the body of body.md, whatever code main gets meanwhile
+17:28:35 matchmark#224: then would print the merge commit whose ci run on main is the one to look at
 
-$ bin/merge-current gitops 569 --subject "feat(openobserve): show Matchmark usage per agent (#569)" --body-file body.md --dry-run
-15:48:41 gitops#569: main has a merge queue: the queue is the gate there, and nothing is done here
+$ bin/merge-current matchmark 224 --subject "fix(api): start an attempt only from a project member's comment (#224)" --body-file body.md --current --watch --dry-run
+17:28:38 matchmark#224: mode --current: takes main in when the head lacks code, and looks again for code before merging
+17:28:38 matchmark#224: the head holds every code change of main: would not update it
+17:28:40 matchmark#224: checks now: pending (5 pass, 1 pending): check / check: pending
+17:28:40 matchmark#224: workflow runs now: pending (4 runs): ci: in_progress
+17:28:40 matchmark#224: would wait until both are green, every 20 seconds for up to 90 minutes
+17:28:40 matchmark#224: would look again for code on main, then squash merge it with the subject "fix(api): start an attempt only from a project member's comment (#224)" and the body of body.md
+17:28:40 matchmark#224: then would wait for the ci run of the merge commit on main, every 30 seconds: 10 minutes for it to appear (then exit 0), exit 4 naming the failed jobs if it fails
+
+$ bin/merge-current gitops 591 --subject "chore(actions-runners): stop the runners before retiring them (#591)" --body-file body.md --dry-run
+17:28:41 gitops#591: main has a merge queue: the queue is the gate there, and nothing is done here
 (exit status 3)
 ```
 
@@ -846,9 +885,9 @@ bin/open-session          opens or focuses one directory's session, in the
 bin/autopilot             the autopilot: its loop, and starting or toggling it
 bin/skill-usage           which skills and subagents the sessions used, from their
                           transcripts (Skill usage)
-bin/merge-current         merges one pull request once its checks are green on
-                          a head with every code change of the default branch
-                          (Merging a pull request)
+bin/merge-current         merges one pull request once its checks are green, as
+                          it is or on the current default branch, and can watch
+                          the default branch's ci run (Merging a pull request)
 lib/frontend/__init__.py  what the two scripts ask of Herdr, the rule that
                           picks the front end, and the loading of the backend
                           that does it
