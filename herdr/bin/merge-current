@@ -15,13 +15,21 @@ Until the pull request is merged, it:
 
   1. takes the default branch in with `gh pr update-branch` when the head lacks
      code that branch has: a conflict ends it, for a session to resolve;
-  2. waits for the head's checks, every 20 seconds for up to 90 minutes, and
-     stops at the first red one;
-  3. with --ready, marks a draft ready once its checks are green, waits two
-     minutes (its image jobs start then) and waits for the checks again;
-     without --ready a draft is refused;
+  2. waits until the head is green, every 20 seconds for up to 90 minutes, and
+     stops at the first red: its checks are green, and so is every workflow
+     run of that head (below);
+  3. with --ready, marks a draft ready once it is green, waits up to two
+     minutes for the workflow run that starts then, and waits for it to be
+     green again; without --ready a draft is refused;
   4. looks once more for code the default branch got meanwhile, and starts over
      if there is any (five rounds at most), else squash merges and confirms it.
+
+Checks alone are not enough: a job that waits for another has no check until it
+is queued, and a pull request marked ready starts its workflows again on the
+same head while the previous results are still listed. So the head is green
+only when its checks are (at least one, none failed, cancelled or pending) and
+at least one workflow run of its sha exists, every run is completed, and the
+newest run of each workflow did not fail (a re-run supersedes the failed run).
 
 A repo whose default branch has a merge queue is not merged here: the queue is
 the gate. --dry-run prints each step with the state it finds now, and changes
@@ -46,13 +54,14 @@ ROUNDS = 5
 POLL = 20
 CHECKS_TIMEOUT = 90 * 60
 READY_WAIT = 120
-HEAD_POLL = 5
+SHORT_POLL = 5
 HEAD_TIMEOUT = 120
 MERGE_RETRY_WAIT = 30
 CALL_TIMEOUT = 120
 POLL_ERRORS = 5
 RED = ("fail", "cancel")
 OK = ("pass", "skipping")
+RUN_OK = ("success", "skipped", "neutral")
 ROOT = Path(__file__).resolve().parents[2]
 GH = ["gh"] if shutil.which("gh") else ["mise", "exec", "--", "gh"]
 
@@ -122,6 +131,61 @@ def describe(checks):
     return f"{text}: {unfinished}" if unfinished else text
 
 
+def newest_runs(runs):
+    newest = {}
+    for run in sorted(runs, key=lambda r: (r["created_at"], r["id"])):
+        newest[run["workflow_id"]] = run
+    return list(newest.values())
+
+
+def failed_runs(runs):
+    return [r for r in newest_runs(runs)
+            if r["status"] == "completed" and r["conclusion"] not in RUN_OK]
+
+
+def unfinished_runs(runs):
+    return [r for r in runs if r["status"] != "completed"]
+
+
+def runs_state(runs):
+    if not runs:
+        return "none"
+    if failed_runs(runs):
+        return "red"
+    if unfinished_runs(runs):
+        return "pending"
+    return "green"
+
+
+def describe_runs(runs):
+    state = runs_state(runs)
+    if state == "none":
+        return "none yet"
+    text = f"{state} ({len(runs)} run{'s' if len(runs) != 1 else ''})"
+    named = [f"{r['name']}: {r['conclusion']}" for r in failed_runs(runs)]
+    named += [f"{r['name']}: {r['status']}" for r in unfinished_runs(runs)]
+    return f"{text}: {', '.join(named)}" if named else text
+
+
+def head_state(checks, runs):
+    states = (check_state(checks), runs_state(runs))
+    if "red" in states:
+        return "red"
+    if all(state == "green" for state in states):
+        return "green"
+    return "pending" if "pending" in states else "none"
+
+
+def culprits(checks, runs, unfinished):
+    """What is red, and what is still unfinished when `unfinished`."""
+    buckets = set(RED) | ({"pending"} if unfinished else set())
+    named = [f"{c['name']}: {c['bucket']}" for c in checks if c["bucket"] in buckets]
+    named += [f"run {r['name']}: {r['conclusion']}" for r in failed_runs(runs)]
+    if unfinished:
+        named += [f"run {r['name']}: {r['status']}" for r in unfinished_runs(runs)]
+    return ", ".join(named)
+
+
 def sample(names):
     return ", ".join(names[:3]) + (", ..." if len(names) > 3 else "")
 
@@ -155,6 +219,11 @@ class Pull:
         except ValueError:
             raise Stop(1, f"gh pr checks: not JSON: {one_line(p.stdout)[:80]}")
 
+    def runs(self, head):
+        return json.loads(out(
+            "api", f"repos/{self.slug}/actions/runs?head_sha={head}&per_page=100", "--jq",
+            "[.workflow_runs[] | {id, workflow_id, name, status, conclusion, created_at}]"))
+
     def code_missing(self, head):
         names = out("api", f"repos/{self.slug}/compare/{head}...{self.branch}", "--jq",
                     ".files[]? | .filename, (.previous_filename // empty)").splitlines()
@@ -166,19 +235,28 @@ class Pull:
         if p.returncode or "updated" not in text.lower():
             raise Stop(2, f"{self.tag}: cannot take {self.branch} in ({text}); "
                           "it needs a session to do it")
-        for _ in range(HEAD_TIMEOUT // HEAD_POLL):
+        for _ in range(HEAD_TIMEOUT // SHORT_POLL):
             if self.view()["headRefOid"] != head:
                 return
-            time.sleep(HEAD_POLL)
+            time.sleep(SHORT_POLL)
         log(f"{self.tag}: the head did not move in {HEAD_TIMEOUT} seconds")
 
-    def wait_for_green(self):
+    def wait_for_new_run(self, head, known):
+        """After gh pr ready: the workflows that start again on the same head."""
+        for _ in range(READY_WAIT // SHORT_POLL):
+            if any(run["id"] not in known for run in self.runs(head)):
+                return
+            time.sleep(SHORT_POLL)
+        log(f"{self.tag}: no new workflow run in {READY_WAIT} seconds")
+
+    def wait_for_green(self, head):
+        """Waits until the checks and the workflow runs of `head` are green."""
         shown = None
         errors = 0
-        checks = []
+        checks = runs = []
         for _ in range(CHECKS_TIMEOUT // POLL):
             try:
-                checks = self.checks()
+                checks, runs = self.checks(), self.runs(head)
                 errors = 0
             except Stop as stop:
                 errors += 1
@@ -187,19 +265,19 @@ class Pull:
                 log(f"{self.tag}: {stop.message}; trying again")
                 time.sleep(POLL)
                 continue
-            state = check_state(checks)
+            state = head_state(checks, runs)
             if state == "green":
-                log(f"{self.tag}: checks green")
+                log(f"{self.tag}: checks and workflow runs green")
                 return
             if state == "red":
-                raise Stop(1, f"{self.tag}: checks red: {listed(checks, RED)}")
-            now = describe(checks)
+                raise Stop(1, f"{self.tag}: red: {culprits(checks, runs, False)}")
+            now = f"checks {describe(checks)}; workflow runs {describe_runs(runs)}"
             if now != shown:
-                log(f"{self.tag}: waiting for the checks, {now}")
+                log(f"{self.tag}: waiting, {now}")
                 shown = now
             time.sleep(POLL)
-        raise Stop(1, f"{self.tag}: checks not green in {CHECKS_TIMEOUT // 60} minutes: "
-                      f"{listed(checks, set(RED) | {'pending'}) or 'none reported'}")
+        raise Stop(1, f"{self.tag}: not green in {CHECKS_TIMEOUT // 60} minutes: "
+                      f"{culprits(checks, runs, True) or 'nothing reported'}")
 
     def merge(self, subject, body_file, head):
         """Whether the pull request is merged after asking for it."""
@@ -217,24 +295,26 @@ class Pull:
 
 def dry_run(pull, args):
     view = pull.view()
-    missing = pull.code_missing(view["headRefOid"])
+    head = view["headRefOid"]
+    missing = pull.code_missing(head)
     if missing:
         log(f"{pull.tag}: {pull.branch} has code the head lacks ({sample(missing)}): would run "
             "gh pr update-branch, and the checks would start over on the new head")
     else:
         log(f"{pull.tag}: the head holds every code change of {pull.branch}: would not update it")
-    checks = pull.checks()
+    checks, runs = pull.checks(), pull.runs(head)
     log(f"{pull.tag}: checks now: {describe(checks)}")
-    state = check_state(checks)
+    log(f"{pull.tag}: workflow runs now: {describe_runs(runs)}")
+    state = head_state(checks, runs)
     if state == "red":
-        log(f"{pull.tag}: would stop here, the checks are red: {listed(checks, RED)}")
+        log(f"{pull.tag}: would stop here, red: {culprits(checks, runs, False)}")
         return
-    if state in ("none", "pending"):
-        log(f"{pull.tag}: would wait for the checks, every {POLL} seconds for up to "
+    if state != "green":
+        log(f"{pull.tag}: would wait until both are green, every {POLL} seconds for up to "
             f"{CHECKS_TIMEOUT // 60} minutes")
     if view["isDraft"]:
-        log(f"{pull.tag}: it is a draft: would run gh pr ready, wait {READY_WAIT // 60} minutes "
-            "and wait for the checks again")
+        log(f"{pull.tag}: it is a draft: would run gh pr ready, wait up to {READY_WAIT // 60} "
+            "minutes for a new workflow run and wait until both are green again")
     log(f"{pull.tag}: would look again for code on {pull.branch}, then squash merge it "
         f"with the subject \"{args.subject}\" and the body of {args.body_file}")
 
@@ -281,13 +361,15 @@ def run(args):
             pull.take_branch_in(head)
             view = pull.view()
             head = view["headRefOid"]
-        pull.wait_for_green()
+        pull.wait_for_green(head)
         if view["isDraft"]:
+            known = {r["id"] for r in pull.runs(head)}
             if call("pr", "ready", pull.number, "-R", pull.slug).returncode:
                 raise Stop(1, f"{pull.tag}: gh pr ready failed")
-            log(f"{pull.tag}: marked ready; waiting {READY_WAIT // 60} minutes for its image jobs")
-            time.sleep(READY_WAIT)
-            pull.wait_for_green()
+            log(f"{pull.tag}: marked ready; waiting up to {READY_WAIT // 60} minutes for its "
+                "workflows to start again")
+            pull.wait_for_new_run(head, known)
+            pull.wait_for_green(head)
         if pull.view()["headRefOid"] != head:
             log(f"{pull.tag}: the head moved while its checks ran (round {round_number})")
             continue
