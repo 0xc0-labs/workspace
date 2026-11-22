@@ -605,6 +605,79 @@ release. When no binary exists for the machine, it builds from source with
 holds: it does not protect against a tag that is published again, which
 would bring a new binary and its new checksums together (workspace#157).
 
+## Skill usage
+
+`bin/skill-usage [--since <days>] [--repo <name>]` prints which skills and
+subagents the workspace's Claude Code sessions used, by repo and by issue
+session, so the org can see what its harness really uses and whether a change
+to it had an effect (workspace#275, claude-config#96). It reads the
+transcripts Claude Code keeps under `~/.claude/projects/` (or
+`$CLAUDE_CONFIG_DIR/projects/`): the orchestrator's, each repo's and each
+issue session's, with their subagents' files, written in the last `--since`
+days (7 by default). `--repo` limits it to one repo, named as in Names
+(`orchestrator` for the workspace's own session). It reads those files and
+nothing else, makes no network request and writes no file; it needs `python3`
+and its standard library alone.
+
+For each repo it prints:
+
+- the skills loaded with the Skill tool, and how many sessions loaded each;
+- the slash commands the sessions ran, counted once per session;
+- the subagent types started, with their counts;
+- for each plugin the repo's `.claude/settings.json` enables, how many of the
+  repo's sessions loaded at least one of its skills, 0 included;
+- one line per issue session, `<repo>-<n>`, with its skills and its subagents.
+
+A subagent's skills count for the session that started it. Output is counts
+and names only: a name that is not a plain identifier prints as `(unnamed)`,
+and no text of a prompt, a message or a tool's result is ever printed. A line
+of a transcript that does not parse is skipped and counted in the last line.
+
+```
+$ bin/skill-usage --since 2        (trimmed)
+skill-usage: the last 2 days
+read 138 sessions and 438 subagent transcripts
+
+orchestrator: 2 sessions
+  skills loaded, by sessions
+       1  0xc0:orchestrate
+       1  claude-api
+  slash commands, by sessions
+       1  /clear
+  subagents started
+      21  general-purpose
+       1  Explore
+  enabled plugins, sessions that loaded one of their skills
+       1  0xc0 (of 2)
+       0  claude-md-management (of 2)
+
+gitops: 26 sessions
+  skills loaded, by sessions
+    none
+  slash commands, by sessions
+      26  /0xc0:work-issue
+  subagents started
+       1  agent-skills:code-reviewer
+       1  web-fetch
+  enabled plugins, sessions that loaded one of their skills
+       0  0xc0 (of 26)
+  issue sessions
+    gitops-493: skills none; subagents web-fetch
+    gitops-562: skills none; subagents agent-skills:code-reviewer, agent-skills:test-engineer
+
+skipped 0 lines that did not parse
+```
+
+What it cannot see:
+
+- what a plugin or a hook puts in a session when it starts, a skill's text or
+  the board among them: the session has it without calling the Skill tool, so
+  it counts as not loaded. A skill a session started as a slash command shows
+  as a command, and not as a skill of its plugin;
+- sessions run on another machine, and transcripts Claude Code has already
+  removed;
+- whether a session followed the skill it loaded.
+
 ## Setting it up, once per machine
 
 `bootstrap.sh` sets up each Herdr front end that is installed, and says which
@@ -704,6 +777,8 @@ bin/pick                  the TUI's popups: the workspace and every repo cloned
 bin/open-session          opens or focuses one directory's session, in the
                           front end in use
 bin/autopilot             the autopilot: its loop, and starting or toggling it
+bin/skill-usage           which skills and subagents the sessions used, from their
+                          transcripts (Skill usage)
 lib/frontend/__init__.py  what the two scripts ask of Herdr, the rule that
                           picks the front end, and the loading of the backend
                           that does it
