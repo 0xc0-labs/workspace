@@ -678,6 +678,73 @@ What it cannot see:
   removed;
 - whether a session followed the skill it loaded.
 
+## Merging a pull request
+
+`bin/merge-current <repo> <number> --subject "<subject>" --body-file <file>
+[--ready] [--dry-run]` merges one pull request of the org, and only when its
+checks are green on a head that holds every code change of the repo's default
+branch (workspace#277). It is what the orchestrator runs to merge several
+pull requests of a repo one after another, once per pull request, in the order
+it wants, stopping at the first status that is not 0. `<repo>` is a repo's name
+(`matchmark`): the org is always `0xc0-labs`. The subject and the body are the
+squash commit's: the subject has 72 characters at most and ends with
+` (#<number>)`, and the body is read from the file.
+
+Until the pull request is merged, it:
+
+1. looks at what the default branch has that the head lacks. A file under
+   `docs/` or `spec/`, or ending in `.md`, is not code: a commit that touches
+   only those is exempt. If code is missing, it runs `gh pr update-branch`;
+2. waits until the head is green, every 20 seconds for up to 90 minutes, and
+   stops at the first red one, naming it. Green is both of: the head's checks
+   (at least one, none failed or cancelled, none pending) and its workflow
+   runs (at least one run of the head's sha, every run completed, the newest
+   run of each workflow not failed, cancelled or timed out: a re-run
+   supersedes the failed one; skipped and neutral are fine). Checks alone are
+   read too early: a job that waits for another has no check until it is
+   queued, and a pull request marked ready starts its workflows again on the
+   same head while the previous results are still listed as passed;
+3. with `--ready`, marks a draft ready once it is green, waits up to two
+   minutes for a workflow run that did not exist before (a repo's image jobs
+   start when a pull request becomes ready), and waits until it is green
+   again. Without `--ready` a draft is refused;
+4. looks again for code the default branch got while it waited, and starts over
+   if there is any (five rounds at most); else it squash merges with the head
+   it checked (`--match-head-commit`) and confirms with `gh pr view` that the
+   state is `MERGED`. A refused merge, such as "Base branch was modified", is
+   tried again in the next round.
+
+A repo whose default branch has a merge queue is not merged here: the queue is
+the gate, and the command says so and stops before it changes anything.
+
+| Status | Meaning |
+|---|---|
+| 0 | merged (already merged counts), or the dry run printed its steps |
+| 1 | refused (subject, draft, not open, a base other than the default branch, bad arguments), a red check or run, a timeout or a failed `gh` call |
+| 2 | the default branch cannot be taken in, a conflict: the pull request needs a session |
+| 3 | the default branch has a merge queue |
+
+Every line it prints starts with the UTC time. `--dry-run` runs the refusals
+above and then prints each step it would take, with the state it finds now: what
+the head lacks, whether it would update the branch, the checks and the
+workflow runs, whether it would mark the pull request ready, whether it would
+merge. It changes nothing, and a red check or run is a line in it, not a
+status. It needs `python3` and its
+standard library alone, and `gh`, taken from `PATH` or else from mise.
+
+```
+$ bin/merge-current matchmark 222 --subject "feat(factory-worker): carry the agent's grants in its token (#222)" --body-file body.md --dry-run
+15:48:34 matchmark#222: the head holds every code change of main: would not update it
+15:48:36 matchmark#222: checks now: pending (11 pass, 3 pending, 2 skipping): image-factory-worker / image: pending, image-runner / image: pending, image / image: pending
+15:48:36 matchmark#222: workflow runs now: pending (4 runs): ci: queued
+15:48:36 matchmark#222: would wait until both are green, every 20 seconds for up to 90 minutes
+15:48:36 matchmark#222: would look again for code on main, then squash merge it with the subject "feat(factory-worker): carry the agent's grants in its token (#222)" and the body of body.md
+
+$ bin/merge-current gitops 569 --subject "feat(openobserve): show Matchmark usage per agent (#569)" --body-file body.md --dry-run
+15:48:41 gitops#569: main has a merge queue: the queue is the gate there, and nothing is done here
+(exit status 3)
+```
+
 ## Setting it up, once per machine
 
 `bootstrap.sh` sets up each Herdr front end that is installed, and says which
@@ -779,6 +846,9 @@ bin/open-session          opens or focuses one directory's session, in the
 bin/autopilot             the autopilot: its loop, and starting or toggling it
 bin/skill-usage           which skills and subagents the sessions used, from their
                           transcripts (Skill usage)
+bin/merge-current         merges one pull request once its checks are green on
+                          a head with every code change of the default branch
+                          (Merging a pull request)
 lib/frontend/__init__.py  what the two scripts ask of Herdr, the rule that
                           picks the front end, and the loading of the backend
                           that does it

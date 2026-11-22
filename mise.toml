@@ -1,6 +1,6 @@
 [tools]
 jq    = "1.8.2"   # the plugin's hooks (they also need perl, from the OS)
-gh    = "2.101.0" # the plugin board loader (board.sh), bootstrap.sh, the commands, herdr/bin/autopilot
+gh    = "2.101.0" # the plugin board loader (board.sh), bootstrap.sh, the commands, herdr/bin/autopilot, herdr/bin/merge-current
 glow  = "3.0.0"   # herdr-file-viewer's Markdown renderer (herdr/README.md)
 delta = "0.20.1"  # herdr-file-viewer's diff renderer
 bat   = "0.26.1"  # herdr-file-viewer's source-file renderer
