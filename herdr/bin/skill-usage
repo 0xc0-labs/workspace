@@ -1,0 +1,272 @@
+#!/usr/bin/env python3
+"""Which skills and subagents the workspace's Claude Code sessions used, by
+repo and by issue session, from the transcripts Claude Code keeps on the
+machine (README.md, Skill usage).
+
+  skill-usage [--since <days>] [--repo <name>]
+
+--since limits it to the transcripts written in the last <days> days (7 by
+default). --repo limits it to one repo's sessions, named as Herdr names it
+(`github`, `offby1-cc`; `orchestrator` for the workspace's own).
+
+It reads `*.jsonl` files under ~/.claude/projects/ (or $CLAUDE_CONFIG_DIR/projects/)
+and nothing else, makes no network request and writes no file. It prints
+counts and names only: no text of a prompt, a message or a tool's result ever
+reaches the output.
+"""
+import argparse
+import collections
+import json
+import os
+import re
+import sys
+import time
+from pathlib import Path
+
+DAY = 86400
+COMMAND = re.compile(r"<command-name>\s*([^<\s]+)\s*</command-name>")
+# What a skill, subagent type or command may be called in the output: anything
+# else would be text, and is shown as UNNAMED.
+NAME = re.compile(r"[A-Za-z0-9_.:@/-]{1,80}")
+UNNAMED = "(unnamed)"
+DEFAULT_SUBAGENT = "general-purpose"
+ISSUE_SESSION = re.compile(r"(.+)-([0-9]+)")
+ORCHESTRATOR = "orchestrator"
+
+
+def workspace_root():
+    """The workspace's clone. A worktree of it holds its own copy of this
+    script, but the sessions' transcripts are filed under the clone's path."""
+    root = Path(__file__).resolve().parents[2]
+    try:
+        match = re.match(r"gitdir:\s*(.+?)/\.git/worktrees/", (root / ".git").read_text())
+    except OSError:  # a clone's .git is a directory
+        match = None
+    return Path(match.group(1)) if match else root
+
+
+def session_name(repo):
+    """The repo's session name, as autopilot and open-session give it."""
+    return re.sub(r"^-+", "", repo.lower().replace(".", "-"))
+
+
+def classify(project, prefix):
+    """The repo and the issue session (`<repo>-<n>`, or None) of a project
+    directory. Claude Code names it after the session's path with every
+    character outside [A-Za-z0-9] as a dash, so `.worktrees/` is `--worktrees-`
+    and a dot directory such as `.github` is `--github`."""
+    rest = project[len(prefix):]
+    if rest == "" or rest.startswith("--claude-worktrees-"):
+        return ORCHESTRATOR, None
+    if rest.startswith("--worktrees-"):
+        tail = rest[len("--worktrees-"):]
+        match = ISSUE_SESSION.fullmatch(tail)
+        return (match.group(1), tail) if match else (tail, None)
+    return rest.lstrip("-").split("--")[0], None
+
+
+def clean(name):
+    if isinstance(name, str):
+        name = name.strip()
+        if NAME.fullmatch(name):
+            return name
+    return UNNAMED
+
+
+class Session:
+    """One session file, with what its subagents' files add."""
+
+    def __init__(self, repo, issue):
+        self.repo = repo
+        self.issue = issue
+        self.skills = set()
+        self.commands = set()
+        self.subagents = collections.Counter()
+
+
+def text_of(content):
+    if isinstance(content, str):
+        return [content]
+    if isinstance(content, list):
+        return [block["text"] for block in content
+                if isinstance(block, dict) and block.get("type") == "text"
+                and isinstance(block.get("text"), str)]
+    return []
+
+
+def scan(path, session, is_session_file):
+    """Adds to `session` what the file at `path` shows and returns how many
+    of its lines did not parse, or None when the file cannot be read.
+
+    Only `assistant` lines count for tools: the request blobs Claude Code also
+    keeps repeat earlier tool calls. A tool call is counted once per id."""
+    bad = 0
+    seen = set()
+    commands = set()
+    try:
+        with open(path, encoding="utf-8", errors="replace") as lines:
+            for line in lines:
+                if not line.strip():
+                    continue
+                try:
+                    entry = json.loads(line)
+                except (ValueError, RecursionError):
+                    bad += 1
+                    continue
+                if not isinstance(entry, dict):
+                    bad += 1
+                    continue
+                message = entry.get("message")
+                if not isinstance(message, dict):
+                    continue
+                content = message.get("content")
+                if entry.get("type") == "assistant" and isinstance(content, list):
+                    for block in content:
+                        if not (isinstance(block, dict) and block.get("type") == "tool_use"):
+                            continue
+                        if block.get("id") is not None:
+                            if block["id"] in seen:
+                                continue
+                            seen.add(block["id"])
+                        arguments = block.get("input")
+                        if not isinstance(arguments, dict):
+                            arguments = {}
+                        if block.get("name") == "Skill":
+                            session.skills.add(clean(arguments.get("skill")).lstrip("/"))
+                        elif block.get("name") in ("Agent", "Task"):
+                            session.subagents[clean(arguments.get("subagent_type") or DEFAULT_SUBAGENT)] += 1
+                elif entry.get("type") == "user" and is_session_file:
+                    for text in text_of(content):
+                        for command in COMMAND.findall(text):
+                            commands.add("/" + clean(command).lstrip("/"))
+    except OSError:
+        return None
+    session.commands |= commands
+    return bad
+
+
+def collect(projects, prefix, since, only_repo):
+    """The sessions with a transcript written since `since`, keyed by project
+    directory and session id, and the counts the report starts with."""
+    sessions = {}
+    counts = collections.Counter()
+    for project in sorted(projects.iterdir()):
+        if not (project.is_dir() and (project.name == prefix or project.name.startswith(prefix + "-"))):
+            continue
+        repo, issue = classify(project.name, prefix)
+        if only_repo and repo != only_repo:
+            continue
+        for path in sorted(project.rglob("*.jsonl")):
+            try:
+                if path.stat().st_mtime < since:
+                    continue
+            except OSError:
+                counts["unreadable"] += 1
+                continue
+            parts = path.relative_to(project).parts
+            is_session_file = len(parts) == 1
+            owner = (project.name, path.stem if is_session_file else parts[0])
+            session = sessions.setdefault(owner, Session(repo, issue))
+            bad = scan(path, session, is_session_file)
+            if bad is None:
+                counts["unreadable"] += 1
+                continue
+            counts["subagent files" if not is_session_file else "session files"] += 1
+            counts["unparsed"] += bad
+    return sessions, counts
+
+
+def enabled_plugins(directory):
+    """The plugins the repo's `.claude/settings.json` enables, or none when it
+    cannot be read."""
+    try:
+        data = json.loads((directory / ".claude" / "settings.json").read_text())
+        return sorted({key.split("@")[0] for key, on in data["enabledPlugins"].items() if on})
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return []
+
+
+def count_of(number, noun):
+    return f"{number} {noun}" + ("" if number == 1 else "s")
+
+
+def ranked(counter):
+    return sorted(counter.items(), key=lambda item: (-item[1], item[0]))
+
+
+def listed(counter):
+    return ", ".join(f"{name} x{count}" if count > 1 else name for name, count in ranked(counter)) or "none"
+
+
+def report(sessions, counts, workspace, days):
+    directories = {}
+    try:
+        directories = {session_name(d.name): d for d in workspace.iterdir() if d.is_dir()}
+    except OSError:
+        pass
+    directories[ORCHESTRATOR] = workspace
+
+    repos = collections.defaultdict(list)
+    for session in sessions.values():
+        repos[session.repo].append(session)
+
+    out = [f"skill-usage: the last {days:g} days",
+           f"read {count_of(len(sessions), 'session')} and {count_of(counts['subagent files'], 'subagent transcript')}"]
+    for repo in sorted(repos, key=lambda name: (name != ORCHESTRATOR, name)):
+        members = repos[repo]
+        skills = collections.Counter(skill for s in members for skill in s.skills)
+        commands = collections.Counter(command for s in members for command in s.commands)
+        subagents = sum((s.subagents for s in members), collections.Counter())
+        out += ["", f"{repo}: {count_of(len(members), 'session')}"]
+        out.append("  skills loaded, by sessions")
+        out += [f"    {count:>4}  {name}" for name, count in ranked(skills)] or ["    none"]
+        out.append("  slash commands, by sessions")
+        out += [f"    {count:>4}  {name}" for name, count in ranked(commands)] or ["    none"]
+        out.append("  subagents started")
+        out += [f"    {count:>4}  {name}" for name, count in ranked(subagents)] or ["    none"]
+        plugins = enabled_plugins(directories[repo]) if repo in directories else []
+        if plugins:
+            out.append("  enabled plugins, sessions that loaded one of their skills")
+            for plugin in plugins:
+                loaded = sum(any(skill.startswith(plugin + ":") for skill in s.skills) for s in members)
+                out.append(f"    {loaded:>4}  {plugin} (of {len(members)})")
+        issues = collections.defaultdict(list)
+        for session in members:
+            if session.issue:
+                issues[session.issue].append(session)
+        if issues:
+            out.append("  issue sessions")
+            for issue in sorted(issues, key=lambda name: (ISSUE_SESSION.fullmatch(name).group(1),
+                                                          int(ISSUE_SESSION.fullmatch(name).group(2)))):
+                skills = collections.Counter(skill for s in issues[issue] for skill in s.skills)
+                subagents = sum((s.subagents for s in issues[issue]), collections.Counter())
+                out.append(f"    {issue}: skills {', '.join(sorted(skills)) or 'none'}; subagents {listed(subagents)}")
+
+    out += ["", f"skipped {count_of(counts['unparsed'], 'line')} that did not parse"
+                + (f" and {count_of(counts['unreadable'], 'file')} that could not be read" if counts["unreadable"] else "")]
+    return out
+
+
+def main(argv):
+    parser = argparse.ArgumentParser(prog="skill-usage", description=__doc__.split("\n\n")[0])
+    parser.add_argument("--since", type=float, default=7, metavar="DAYS",
+                        help="only transcripts written in the last DAYS days (default 7)")
+    parser.add_argument("--repo", metavar="NAME",
+                        help="only this repo's sessions; orchestrator for the workspace's own")
+    args = parser.parse_args(argv)
+    if args.since <= 0:
+        parser.error("--since must be a positive number of days")
+
+    workspace = workspace_root()
+    prefix = re.sub(r"[^A-Za-z0-9]", "-", str(workspace))
+    config = Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude")
+    projects = config / "projects"
+    if not projects.is_dir():
+        sys.exit(f"skill-usage: no transcripts: {projects} is not a directory")
+    sessions, counts = collect(projects, prefix, time.time() - args.since * DAY,
+                               session_name(args.repo) if args.repo else None)
+    print("\n".join(report(sessions, counts, workspace, args.since)))
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])
