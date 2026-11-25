@@ -11,8 +11,9 @@ state, in an LXC · Cloudflare R2 for the applications' files · Resend for thei
 email · Cloudflare Free (Tunnel, Access, WARP) · Packer + OpenTofu + Ansible ·
 GitHub Actions with self-hosted runners · RKE2 on Rocky Linux · HAProxy +
 keepalived · ArgoCD · Traefik with the Gateway API · CrowdSec · cert-manager
-with Let's Encrypt · external-dns · Longhorn · Headlamp · Vault · OpenObserve
-with the OpenTelemetry Operator · Hetzner Rescue as the emergency path.
+with Let's Encrypt · external-dns · Longhorn · Headlamp · Vault · Prometheus,
+Loki, Tempo and Grafana behind the OpenTelemetry Operator's collectors ·
+Hetzner Rescue as the emergency path.
 
 **Two Proxmox nodes in one cluster, `pve-2` the main one** (operator
 decisions, 2026-11-23 to 2026-11-25; workspace#285). The cluster is named
@@ -70,7 +71,7 @@ A node's pool is its label `0xc0.cc/pool`:
 
 | Pool | Nodes | Host | Size | Taint | Runs |
 |---|---|---|---|---|---|
-| `infra` | `vm-rke2-01`, `-02`, `-03`, the servers | `pve-2` | 6 vCPU / 16 GiB | none | the control plane, etcd, Vault, Longhorn, OpenObserve, PostgreSQL, MariaDB, Argo CD, CrowdSec and everything else under `gitops`' `platform/` |
+| `infra` | `vm-rke2-01`, `-02`, `-03`, the servers | `pve-2` | 6 vCPU / 16 GiB | none | the control plane, etcd, Vault, Longhorn, Prometheus, Loki, Tempo, Grafana, PostgreSQL, MariaDB, Argo CD, CrowdSec and everything else under `gitops`' `platform/` |
 | `apps` | `vm-rke2-04`, `-05` | `pve-2` | 4 vCPU / 12 GiB | `0xc0.cc/pool=apps:NoSchedule` | everything under `gitops`' `apps/` |
 | `sandbox` | `vm-rke2-06` | `pve-1` | 10 vCPU / 32 GiB, a 150 GiB root, no Longhorn | `0xc0.cc/pool=sandbox:NoSchedule` | Matchmark's sandboxes under gVisor, and nothing else |
 
@@ -172,35 +173,104 @@ TLS, and inside the cluster the API is plain HTTP behind NetworkPolicies
 pods on the API). No agent injector: Vault Secrets Operator reads it. The
 init and unseal runbook is `gitops/platform/vault/README.md`.
 
-**OpenObserve for metrics, logs and traces** (operator decision, 2026-10-01;
-gitops#44), the lightest way to have all three: one backend, single node, on
-a Longhorn volume, with its own dashboards and alerts, and PromQL for the
-metrics. It replaces Prometheus + Grafana, and lifts the discard of logs and
-traces. The OpenTelemetry Operator runs the collectors: one agent per node
-for every container's logs and the nodes' and pods' metrics, and one gateway
-for traces over OTLP, Kubernetes events, and every Prometheus target, which
-each component declares with a ServiceMonitor and its target allocator finds.
-The control plane's metrics (etcd, scheduler, controller manager) are exposed
-on the RKE2 servers for it. Retention is 30 days. The open-source edition
-has no SSO: its own users, on the WARP-only path, `https://o2.int.0xc0.cc`.
+**Observability is Prometheus, Loki, Tempo and Grafana, behind one
+OpenTelemetry gateway** (operator decision, 2026-11-25; workspace#290). It
+replaces OpenObserve (operator decision, 2026-10-01; gitops#44), which was the
+lightest way to have the three signals while the cluster was one node with
+little memory left. With two nodes and servers of 16 GiB that reason no longer
+held, and OpenObserve's cost showed on 2026-11-25: its volume reached 3.3
+million files, and containerd relabels a volume recursively when a container
+starts on a node that labels its containers, for longer than kubelet allows,
+so the start looped (workspace#288). What the move brings is community
+dashboards for nearly everything that runs (Kubernetes, Longhorn, Traefik, Argo
+CD, Vault, CrowdSec) in place of hand-written ones, the standard query
+languages (PromQL, LogQL, TraceQL), and Grafana's correlation between the
+signals. The comparison was put to the operator, who answered «ok pues
+seguramente cambiemos a ese stack, lo veremos después de lo que estamos ya»
+and, leaving the choices to the orchestrator, «recuerda que eres full
+autónomo, incluso si quieres ir desplegando el stack de grafana eres libre,
+prioriza tú mismo». The plan was a week of both before the cut-over, and it
+took none: since OpenObserve's volume was recreated on 2026-11-25 its
+collectors' exports failed with `Unauthenticated`, so Prometheus, Loki and
+Tempo alone held the data, and OpenObserve was removed that day.
+- **Metrics: kube-prometheus-stack.** Prometheus, one replica, keeps 30 days on
+  a 20 Gi Longhorn volume. It scrapes every ServiceMonitor and PodMonitor
+  itself, and takes the applications' OTLP metrics through the gateway;
+  node-exporter and kube-state-metrics report the nodes and the objects, and
+  the control plane's metrics are exposed on the RKE2 servers for it. Not
+  Mimir, which is built to scale out on object storage: at about 39,000 series
+  Prometheus is one process. A block is a handful of files every two hours, so
+  its volume does not bring the relabel loop back.
+- **Logs and traces: Loki (30 days) and Tempo (14 days), monolithic, on two
+  private R2 buckets**, their keys in Vault. Tempo's metrics generator answers
+  the TraceQL metrics the trace dashboards read. R2 is the operator's choice,
+  made on 2026-11-25 after the orchestrator put it against two others: an
+  object store in the cluster, which needs no token but would bring the
+  relabel loop back, with the Storage Box already at 70 %; and Hetzner Object
+  Storage, 6.49 € a month fixed with 1 TB, which costs less only past about
+  450 GB, where R2 is about 1.35 $ a month at 100 GB and has no egress fee. A
+  Longhorn volume was out as well: Loki writes a file per chunk and the relabel
+  loop would be back. The operator asked «100gb en r2 cuánto sería? porque yo
+  creo que loki va a ocupar bastante más» and «y el bucket de hetzner?», and
+  decided: «ah ok pues bueno, dale entonces» ([discarded](../discarded.md)).
+- **Alerts are Grafana's, with no Alertmanager** (operator, 2026-11-25: «no se
+  podría usar mejor grafana alerts? me gustan más»): one place for rules,
+  silences and destinations, with rules over Loki as well as Prometheus. Sixteen
+  Grafana-managed rules, provisioned from git, cover volumes filling, nodes not
+  ready, pods restarting, Vault sealed, certificates expiring, etcd, Deployments
+  short of replicas, targets down and the collectors failing to export, and one
+  over Loki's error lines; the chart's default Kubernetes rules stay in
+  Prometheus, and Grafana lists them read only. There is no contact point yet,
+  so an alert shows in Grafana and reaches nobody ([accepted
+  risks](../accepted-risks.md)).
+- **One neutral collector is the entry point.** The applications and Traefik
+  send OTLP to `otel-gateway.opentelemetry.svc.cluster.local` and never know
+  the backends (operator, 2026-11-25: «las apps iban a apuntar al collector
+  (endpoint centralizado) y estos reparten a loki prometheus y tempo», and of
+  the name, «Sí me parece genial»). The OpenTelemetry Operator runs two
+  collectors, named after no backend: a gateway on the `infra` pool, which
+  sends traces to Tempo, metrics to Prometheus, and logs and Kubernetes events
+  to Loki, and makes the service graph; and an agent on every node, tainted
+  pools included, which reads the containers' logs from `/var/log/pods`, keeps
+  its offsets on the node and sends them to Loki. No collector scrapes. Alloy
+  stays out ([discarded](../discarded.md)).
+- **Grafana** is at `grafana.int.0xc0.cc`, over WARP only like every portal.
+  Its admin login is read from Vault (`platform/grafana/admin`), with no SSO:
+  OIDC through Zitadel is for later. Its data sources and dashboards come from
+  git and are read only in the UI: the chart's Kubernetes ones, imported ones
+  for Argo CD, Longhorn, Traefik, Vault and CrowdSec, and rebuilt ones for the
+  applications, Matchmark, the traces and Kubernetes events, which replace
+  every dashboard OpenObserve had.
+
+What runs, how it is checked and what the operator writes are `gitops`'
+[`kube-prometheus-stack`](https://github.com/0xc0-labs/gitops/blob/main/platform/kube-prometheus-stack/README.md),
+[`loki`](https://github.com/0xc0-labs/gitops/blob/main/platform/loki/README.md),
+[`tempo`](https://github.com/0xc0-labs/gitops/blob/main/platform/tempo/README.md)
+and
+[`opentelemetry-collector`](https://github.com/0xc0-labs/gitops/blob/main/platform/opentelemetry-collector/README.md)
+READMEs; the keys at each secret's path, `vault`'s README.
 
 **Every application is observable from the day it is deployed** (operator
 decision, 2026-10-03; workspace#52). The change that deploys it ships all of
 this, never a follow-up:
-- **logs:** to stdout or stderr, with a level the collector can parse. A log
-  the application writes to a file is followed onto stdout by a sidecar
-  (Mautic's).
+- **logs:** to stdout or stderr, with a level the node agent can parse; an
+  application of ours writes the org's JSON line, with the trace and span IDs,
+  that `@0xc0-labs/observability` provides. A log the application writes to a
+  file is followed onto stdout by a sidecar (Mautic's).
 - **metrics:** at least Traefik's per-route traffic and the kubelet's per-pod
-  resources, on the "Apps" dashboard; its own endpoint, with a ServiceMonitor,
-  when it has one.
-- **traces:** OTLP to the collector's gateway, joined to Traefik's trace
-  through `traceparent`. That means egress to the gateway, and the namespace
-  admitted in the collector's `otlp-from-senders`.
-- **RUM, when it has a frontend:** OpenObserve's browser SDK, sending through
-  the application's own name (`/rum/v1/default/rum`, POST only, rate limited,
-  with a ReferenceGrant to OpenObserve). It stores nothing on the visitor's
-  browser and records no session replay, so it needs no consent banner. The
-  client token is public by design, and lives in Vault like any credential.
+  resources, on Grafana's `Apps` dashboard; its own endpoint, with a
+  ServiceMonitor, when it has one.
+- **traces:** OTLP to `otel-gateway`, joined to Traefik's trace through
+  `traceparent`. That means egress to the gateway, and the namespace admitted
+  in the collector's `otlp-from-senders`.
+- **RUM, when it has a frontend: Faro, which is pending** (workspace#290,
+  phase 3). Until it lands no site sends RUM, and no trace starts in the
+  visitor's browser. What self-hosted Faro gives is events and measurements in
+  Loki and traces in Tempo, with dashboards of ours; Grafana's Frontend
+  Observability app and Session Replay are Grafana Cloud's, so OpenObserve's
+  RUM screen and session replay go with it. The phase has to check whether Faro
+  keeps anything in the visitor's browser: OpenObserve's SDK stored nothing,
+  and so needed no consent banner.
 
 **Plane is the exception to the rule above** (operator decision, 2026-11-19;
 workspace#250): it has only what the cluster takes of every pod and route,
@@ -236,8 +306,7 @@ There are no dynamic engines (`pki/`, `database/`); one is added when
 something needs it. `apps/` has one Kubernetes auth role, `apps`, for every
 namespace labelled `vault.0xc0.cc/apps`, and one templated policy, which
 reads the path of the namespace the login comes from instead of one policy
-each (noted 2026-10-01), plus `apps/shared/openobserve-rum` by name. The
-full standard is in the `vault` repo's README.
+each (noted 2026-10-01). The full standard is in the `vault` repo's README.
 
 **Vault is configured with OpenTofu from its own repo, `vault`** (operator
 decision, 2026-09-30; .github#6): auth methods and roles, policies, secret
@@ -430,7 +499,7 @@ Payload; carried to Strapi 2026-10-21; workspace#203). The platform keeps
 what Strapi needs to start and what is the operator's: the database
 (`apps/<namespace>/database`), Strapi's own secrets and the admin's own
 mail key (`apps/<namespace>/cms`), the front's API token
-(`apps/<namespace>/cms-client`), RUM, `ghcr-pull`, each site's Mautic as a
+(`apps/<namespace>/cms-client`), `ghcr-pull`, each site's Mautic as a
 deployment, and the network. Everything else a site needs from an outside
 service, it sets in the admin, choosing the integration of each capability
 and entering its keys: payments (Stripe), video (Bunny), community

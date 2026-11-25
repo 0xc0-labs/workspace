@@ -232,15 +232,16 @@ the image in the environment's `kustomization.yaml`; the commit, baked into
 the image when it is built, so a trace leads to the code even from an image
 run outside `gitops`; and `deployment.environment`, from the environment's
 directory. The same image is an rc in staging and a release in prod, so its
-version cannot be baked into it. A request is one trace from the browser to
-the database: RUM starts it and sends `traceparent` to the frontend's own
-origin only, the frontend's server continues it, its call to the CMS carries
-it, and the CMS's spans reach PostgreSQL. Logs are JSON with the trace and
-span IDs, so OpenObserve opens a request's logs from its trace. The
-frontends instrument with OpenTelemetry through Next.js's instrumentation
-hook, and a site's Strapi, a Node service, through `@0xc0-labs/observability`
-and its inbound spans (packages#31). Each environment's namespace is
-admitted in the collector's `otlp-from-senders`.
+version cannot be baked into it. A request is one trace to the database: it
+starts at Traefik until Faro lands (workspace#290, phase 3), and then in the
+browser, where RUM sends `traceparent` to the frontend's own origin only; the
+frontend's server continues it, its call to the CMS carries it, and the CMS's
+spans reach PostgreSQL. Logs are JSON with the trace and span IDs, so Grafana
+opens a request's logs from its trace. The frontends instrument with
+OpenTelemetry through Next.js's instrumentation hook, and a site's Strapi, a
+Node service, through `@0xc0-labs/observability` and its inbound spans
+(packages#31). Each environment's namespace is admitted in the collector's
+`otlp-from-senders`.
 
 **Images of private repositories stay private.** The cluster pulls them from
 GHCR with a read-only token at `apps/shared/ghcr-pull` in Vault, which Vault

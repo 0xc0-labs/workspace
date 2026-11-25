@@ -141,7 +141,7 @@ playbook (operator decision, 2026-09-29).
   fails at the edge (1014), so every public zone lives in that account
   (`offby1.cc` was moved into it). external-dns is part of the platform
   on purpose (operator decision, 2026-09-29).
-- **Portals** (OpenObserve, ArgoCD, Headlamp): internal, reached only over WARP.
+- **Portals** (Grafana, ArgoCD, Headlamp): internal, reached only over WARP.
   None has a public record, and none is published behind Cloudflare Access
   (operator decision, 2026-09-29).
 - **A front's staging behind Access** (operator decision, 2026-10-13;

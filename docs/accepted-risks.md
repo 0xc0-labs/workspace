@@ -22,18 +22,34 @@ explicit decision from the operator.
   system and the VM disks are on them, and RAID 1 survives one failing. The
   operator will ask Hetzner to replace it, in his words of 2026-11-24: «si lo
   pediré, pero más tarde/otro día, nosotros seguimos adelante».
-- OpenObserve's container cannot restart once its volume holds more than about
-  165 thousand files (accepted by the operator on 2026-11-25; workspace#288):
-  it runs on a node that labels its containers, and containerd relabels a
-  volume recursively when a container starts there, which takes longer than
-  the two minutes kubelet allows, so the start loops. Its volume held 3.3
-  million files when it moved, so the operator let its 30 days of data go and
-  the volume was recreated empty on 2026-11-25, since the stack may move to
-  Grafana (workspace#290). The count is back above that line about a day and a
-  half after the reset. What limits it is that a running OpenObserve is not
-  affected: the relabel is at the start. What ends it is the observability
-  change, workspace#290; until then, a loop is cleared by emptying the volume,
-  as was done on 2026-11-25.
+- No site sends RUM until Faro lands (accepted on 2026-11-25; workspace#290,
+  phase 3): OpenObserve's RUM went with OpenObserve and its replacement is not
+  built yet, so nothing records what a visitor's browser sees, its errors and
+  load times, or the browser's side of a trace. What limits it is that the
+  servers' side is covered: each site's backend sends traces, logs and
+  metrics, and Traefik's per-route traffic is in Prometheus. What ends it is
+  Faro, in `@0xc0-labs/observability` and in each site.
+- Grafana's alerts reach nobody until a contact point is chosen (accepted on
+  2026-11-25; workspace#290): the sixteen rules are evaluated and listed in
+  Grafana, but its notification policy has no destination, so a volume
+  filling, a node not ready or a sealed Vault shows only to whoever opens
+  Grafana. A contact point carries secrets, so it comes from Vault in a later
+  change. What limits it is that Grafana's `Alerting` lists what fires. What
+  ends it is the contact point: email through Resend, as the applications
+  send, or a chat webhook, to be chosen.
+- Grafana's admin login is a password generated into Vault at the operator's
+  request (accepted on 2026-11-25; workspace#290), an exception to the
+  operator writing every secret himself. He asked the orchestrator to create
+  the secrets' paths empty for him to fill («créame tú los secretos vacíos pls
+  y yo los relleno») and, for Grafana's, said: «el de grafana créalo tú mismo,
+  admin password al azar que tú generes». The orchestrator generated it with
+  `openssl rand` straight into Vault, and it was never shown. It is one admin
+  account, with no SSO and no second factor, whose value lives in Vault alone.
+  What limits it is that Grafana is reached over WARP only, and that the
+  secret, at `platform/grafana/admin`, is read by the `monitoring` role alone,
+  apart from the operator's own login. What ends it is OIDC through Zitadel,
+  once that exists, or the operator writing a new value, which Vault Secrets
+  Operator takes to Grafana by restarting it.
 - Dependency on Cloudflare to get in, with Hetzner Rescue as the way out.
 - One cluster holds shared services and applications, Vault included: they are
   separated by namespace and NetworkPolicy, not by zone.
