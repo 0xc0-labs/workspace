@@ -79,7 +79,10 @@ file_viewer_ref=v1.18.0
 
 if $tui; then
   echo "==> herdr: link the plugin"
-  herdr plugin list | grep -qF "local:$PWD/herdr]" ||
+  # Captured, not piped: grep -q exits at the first match and the list then
+  # ends with 141 under pipefail (#241).
+  plugins="$(herdr plugin list)"
+  grep -qF "local:$PWD/herdr]" <<<"$plugins" ||
     herdr plugin link "$PWD/herdr"
 
   # --yes: without a terminal, the install refuses to run without it.
