@@ -178,6 +178,8 @@ shared defaults, and a single `includeIf` in `~/.gitconfig` points at it:
 
 The same file pins the SSH key: `core.sshCommand` uses `~/.ssh/0xc0-homelab`
 with `IdentitiesOnly`, so git never offers another key to these remotes.
+`core.excludesFile` points at `shared-excludes` in this repo, which holds the
+excludes every repo shares (`.DS_Store`).
 
 Scoping by path means a repo cloned later by `bootstrap.sh` gets the identity
 with no extra step, and nothing outside this tree is affected. On a fresh
