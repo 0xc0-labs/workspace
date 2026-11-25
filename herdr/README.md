@@ -51,9 +51,14 @@ Then, every minute, it:
    `work-issue: done <repo>#<n>` or `work-issue: stopped <repo>#<n>: <reason>`,
    alone on its line (only whitespace and Claude Code's `⏺` bullet may come
    before it; a sentence that quotes it does not count; `autopilot
-   --self-test` checks this),
-   and removes that session's worktree if it has no uncommitted changes and
-   no commit missing from `origin`: a clean worktree whose HEAD is already in
+   --self-test` checks this), and of each session at rest whose issue is
+   closed, whatever its last line says: a session that paraphrased it
+   (`done` with a link to its pull request) would otherwise hold its slot
+   for ever (#274). The log says `its issue is closed`, which is when the
+   issue is no longer among the repo's open issues in the board read below.
+   A session that is working, or at rest with its issue open, is left.
+   It removes a closed session's worktree if it has no uncommitted changes
+   and no commit missing from `origin`: a clean worktree whose HEAD is already in
    `origin/main` goes at once, whatever its branch, even one never pushed
    (#166). A branch GitHub deleted when its PR
    merged counts as on `origin` if that PR holds the worktree's last commit,
@@ -140,15 +145,23 @@ board. An issue it started once is not started again until it is turned off
 and on, even if its session left it Ready.
 
 Its look at the board is one GraphQL query, one point of the GitHub API's
-hourly 5,000, made only when a slot is free. Below 500 points left, it starts
-nothing until the budget resets.
+hourly 5,000, made at most once per round, and only when a slot is free or a
+session is at rest without its last line (which the query tells from one whose
+issue is closed: it lists the repo's open issues, 100 at most, beside the
+board's items). The same read serves both, so the closed check adds no
+request to a round that reads anyway, and none per session: with every slot
+held, one point a minute, while some session is at rest without its last
+line. When the repo has more than 100 open issues the list cannot say an issue
+is closed: the pilot leaves such a session and logs it. Below 500 points left,
+it starts nothing until the budget resets, and closes nothing for its issue.
 
 `bin/autopilot run <repo> --dry-run` prints one round, what it would close,
 remove and start, changing nothing; with the app, the `hc` commands it would
 run to start a session and to end one, and the window's commands that would
 name them. It still reads the board once, and the sessions, and the answer of
 `hc read` for a session at rest, whose text goes to the search for the last
-line and nowhere else.
+line and nowhere else. A session at rest whose issue is closed shows as
+`<repo>#<n>: its issue is closed; would close tab …`.
 
 ### Where it runs
 
@@ -221,7 +234,7 @@ labels, and is read at every round:
 | `state: "finished"` | ended: its program left (`reason` `exited` or `killed`, with `exit_code`): handled as "its session exited" |
 | `live`, no `status` yet | starting: busy, unless a shell took its program's place (below): then ended |
 | `live`, `turn` 0, any `status` | busy. Claude Code reports `idle` once before it takes its prompt |
-| `live`, `turn` 1 or more, `status` `idle` or `done` | at rest: its last lines are read, and the session is closed if one is its last line |
+| `live`, `turn` 1 or more, `status` `idle` or `done` | at rest: its last lines are read, and the session is closed if one is its last line, or if its issue is closed (Autopilot, above) |
 | `live`, anything else | busy. A session stopped at a question of Claude Code's (`blocked`, as at "trust this folder") is busy: the operator's to answer, never the pilot's |
 
 The first row's exception is the one `hc ls` cannot show. `hc run --help` says
@@ -913,8 +926,10 @@ would do, touching nothing, and so does `bin/autopilot run <repo> --dry-run`.
 `bin/autopilot --self-test` checks the rule, where the app's core socket is
 looked for and whether it answers (on a temporary socket), the app backend
 reading the answers of `hc` and `herdr-app`, and the autopilot's flow of
-`start`, `toggle` and `state` over stand-in backends, with no Herdr running; it
-also says what each backend has. Of those answers, the rows of `hc ls`, the
+`start`, `toggle` and `state` over stand-in backends, with no Herdr running; a
+round's choice of which sessions to close (a session at rest with its issue
+closed, open or unreadable, one working, one with its last line) and the
+board read it rests on; it also says what each backend has. Of those answers, the rows of `hc ls`, the
 answers of `hc run`, `hc rm`, `hc wait` and `hc read` (`{"complete": true,
 "how": "stitched", "text": …}`), the fields of `hc get` (including
 `foreground`, a running loop's too, 0xc0-labs/workspace#235) and `herdr-app

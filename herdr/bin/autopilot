@@ -16,8 +16,9 @@ per issue, each in its own tab and worktree (README.md, Autopilot).
                                     up-to-date main, installs its plugins,
                                     trusts it in Claude Code; `.` for the
                                     workspace's plugins and trust only
-  autopilot --self-test             checks how the last line is recognised, the
-                                    front ends and the app backend
+  autopilot --self-test             checks how the last line is recognised, when
+                                    a session at rest is closed, the front ends
+                                    and the app backend
 
 <repo> is the repo's directory in the workspace, or its path. The front end is
 the one asked for, with --frontend or OXC0_HERDR_FRONTEND; else the one this
@@ -26,8 +27,8 @@ Which front end). `start`, `toggle` and `state` also look in every other front
 end that answers, and a repo never has two autopilots.
 
 Every minute, in the space of the front end in use named after the repo's
-session, it closes the tab of each session that printed its last line, and
-starts one session per free slot:
+session, it closes the tab of each session that printed its last line, or is at
+rest with its issue closed, and starts one session per free slot:
 
   claude --permission-mode auto --settings .worktrees/.hooks.json \
     -n <session>-<n> -w <session>-<n> "/0xc0:work-issue <repo>#<n>"
@@ -37,6 +38,7 @@ turns itself off once no session runs and a fresh read of the board shows
 nothing Ready for the repo. Between rounds it re-executes itself when its own
 code changed.
 """
+import collections
 import contextlib
 import fcntl
 import io
@@ -91,6 +93,7 @@ query($owner: String!, $name: String!) {
   rateLimit { remaining resetAt }
   repository(owner: $owner, name: $name) {
     issues(states: OPEN, first: 100) {
+      pageInfo { hasNextPage }
       nodes {
         number
         issueDependenciesSummary { blockedBy }
@@ -141,9 +144,15 @@ def slots(repo):
     return 1
 
 
-def ready(repo):
-    """The repo's issues a session may take, most urgent first, as (number, time
-    its board item last changed); None when the API budget is too low to look."""
+Board = collections.namedtuple("Board", "ready still_open")
+
+
+def read_board(repo):
+    """What a round reads of the repo's board, in one request: a Board whose
+    `ready` is the repo's issues a session may take, most urgent first, as
+    (number, time its board item last changed), and whose `still_open` is the
+    set of the repo's open issues, or None when the list is cut short and so
+    cannot say an issue is closed. None when the API budget is too low to look."""
     out = run("mise", "exec", "--", "gh", "api", "graphql",
               "-f", f"query={QUERY}", "-f", f"owner={ORG}", "-f", f"name={repo}",
               cwd=ROOT)
@@ -153,8 +162,9 @@ def ready(repo):
         log(f"GitHub API: {budget['remaining']} points left until "
             f"{budget['resetAt']}; starting nothing until then")
         return None
+    issues = data["repository"]["issues"]
     found = []
-    for issue in data["repository"]["issues"]["nodes"]:
+    for issue in issues["nodes"]:
         if issue["issueDependenciesSummary"]["blockedBy"]:
             continue
         for item in issue["projectItems"]["nodes"]:
@@ -162,7 +172,9 @@ def ready(repo):
             if item["project"]["number"] == BOARD and status == "Ready":
                 priority = PRIORITY.get((item["priority"] or {}).get("name"), 9)
                 found.append((priority, issue["number"], item["updatedAt"]))
-    return [(n, at) for _, n, at in sorted(found)]
+    complete = not issues["pageInfo"]["hasNextPage"]
+    return Board([(n, at) for _, n, at in sorted(found)],
+                 {issue["number"] for issue in issues["nodes"]} if complete else None)
 
 
 def find_last_line(repo, n, screen):
@@ -643,14 +655,14 @@ def stand_in_cases(tui):
         close_tab=lambda tab, dry=False: calls.append(f"close_tab {tab} dry={dry}"),
         start_session=lambda space, name, directory, command, env, dry=False: calls.append(
             f"start_session {name} {env} dry={dry}"))
-    saved_ready, saved_backend = globals()["ready"], frontend.backend
-    globals()["ready"] = lambda repo: [(987654, "2026-11-17T00:00:00Z")]
+    saved_board, saved_backend = globals()["read_board"], frontend.backend
+    globals()["read_board"] = lambda repo: Board([(987654, "2026-11-17T00:00:00Z")], set())
     frontend.backend = stand_in
     try:
         with contextlib.redirect_stdout(out):
             done = round_(Path("/nonexistent/zz-selftest"), "zz-selftest", "zz-selftest", {}, True)
     finally:
-        globals()["ready"], frontend.backend = saved_ready, saved_backend
+        globals()["read_board"], frontend.backend = saved_board, saved_backend
     log_lines = [line.split(" ", 1)[1] for line in out.getvalue().splitlines()]
     cases.append(("round: a dry round closes and starts through the layer, with dry set",
                   calls, ["close_tab T5 dry=True", "start_session zz-selftest-987654 {'OXC0_AUTOPILOT': '1'} dry=True"]))
@@ -658,6 +670,117 @@ def stand_in_cases(tui):
                   [any(text in line for line in log_lines) for text in ("would close tab T5", "would start, in")],
                   [True, True]))
     cases.append(("round: a dry round is not the last one", done, False))
+    return cases
+
+
+def resting_cases():
+    """(what, got, want) for which sessions a round closes, and what it reads
+    of the board to tell (#274), over a stand-in backend and a stand-in board
+    read: nothing runs."""
+    cases = []
+    repo, directory = "zz-selftest", Path("/nonexistent/zz-selftest")
+    ready_at = "2026-11-17T00:00:00Z"
+    last = "work-issue: done zz-selftest#5"
+    working, idle = (frontend.BUSY, ""), (frontend.AT_REST, "Opened the PR.\n> ")
+
+    def play_round(sessions, board, slot_count=1, dry=False):
+        closed, started, reads, out = [], [], [], io.StringIO()
+
+        def workers(space, dry):
+            return iter([frontend.Worker(n, f"{repo}-{n}", f"T{n}", f"S{n}") for n in sessions])
+
+        def read(repo):
+            reads.append(repo)
+            return board
+
+        stand_in = types.SimpleNamespace(
+            __name__="frontend.stand_in",
+            find_space=lambda name: "space",
+            workers=workers,
+            session_state=lambda session: sessions[int(session[1:])][0],
+            read_screen=lambda session: sessions[int(session[1:])][1],
+            close_tab=lambda tab, dry=False: closed.append(tab),
+            start_session=lambda space, name, directory, command, env, dry=False: started.append(name))
+        saved = globals()["read_board"], globals()["slots"], frontend.backend
+        globals()["read_board"], globals()["slots"], frontend.backend = read, lambda repo: slot_count, stand_in
+        try:
+            with contextlib.redirect_stdout(out):
+                done = round_(directory, repo, repo, {}, dry)
+        finally:
+            globals()["read_board"], globals()["slots"], frontend.backend = saved
+        return {"closed": closed, "reads": len(reads), "started": started, "done": done,
+                "log": [line.split(" ", 1)[1] for line in out.getvalue().splitlines()]}
+
+    def plays(what, sessions, board, want, **options):
+        got = play_round(sessions, board, **options)
+        cases.append((f"round: {what}", {key: got[key] for key in want}, want))
+
+    plays("a session at rest whose issue is closed is closed, and the log says why",
+          {5: idle}, Board([], {7}),
+          {"closed": ["T5"], "reads": 1, "log": [f"{repo}#5: its issue is closed; tab closed"], "done": True})
+    plays("a session at rest whose issue is open is left", {5: idle}, Board([], {5, 7}),
+          {"closed": [], "reads": 1, "log": [], "done": False})
+    plays("a session that is working is left, though its issue is closed, and the board is not read",
+          {5: working}, Board([], {7}), {"closed": [], "reads": 0, "log": [], "done": False})
+    plays("a session at rest with its last line is closed by it, not by the board",
+          {5: (frontend.AT_REST, last)}, Board([], {5}),
+          {"closed": ["T5"], "reads": 1, "log": [f"{repo}#5: done {repo}#5; tab closed"], "done": True})
+    plays("a session at rest with its last line and its issue closed says its last line",
+          {5: (frontend.AT_REST, last)}, Board([], {7}),
+          {"closed": ["T5"], "log": [f"{repo}#5: done {repo}#5; tab closed"]})
+    plays("a session that exited is closed", {5: (frontend.ENDED, "")}, Board([], {5}),
+          {"closed": ["T5"], "log": [f"{repo}#5: its session exited; tab closed"]})
+    plays("a board that could not be read (low budget) leaves a session at rest", {5: idle}, None,
+          {"closed": [], "reads": 1, "log": [], "done": False})
+    plays("a list of open issues cut at 100 cannot tell: the session is left, and it says so",
+          {5: idle}, Board([], None),
+          {"closed": [], "reads": 1, "done": False,
+           "log": [f"{repo}: more than 100 open issues: a session at rest cannot be told from one "
+                   "whose issue is closed"]})
+    plays("two sessions at rest, one issue closed: one read, only that one is closed",
+          {5: idle, 6: idle}, Board([], {6}),
+          {"closed": ["T5"], "reads": 1, "done": False, "log": [f"{repo}#5: its issue is closed; tab closed"]},
+          slot_count=2)
+    plays("a session at rest and a free slot share one read, which also starts the Ready issue",
+          {5: idle}, Board([(9, ready_at)], {5, 9}),
+          {"closed": [], "reads": 1, "started": [f"{repo}-9"], "done": False}, slot_count=2, dry=True)
+    plays("a dry round says the closed issue and closes nothing for real",
+          {5: idle}, Board([], {7}),
+          {"closed": ["T5"], "reads": 1, "log": [f"{repo}#5: its issue is closed; would close tab T5"]},
+          dry=True)
+
+    def read_with(answer):
+        saved = globals()["run"]
+        globals()["run"] = lambda *args, cwd=None: json.dumps(answer)
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                return outcome(read_board, repo)
+        finally:
+            globals()["run"] = saved
+
+    def item(status, priority, at=ready_at, project=BOARD):
+        return {"project": {"number": project}, "updatedAt": at,
+                "status": {"name": status} if status else None,
+                "priority": {"name": priority} if priority else None}
+
+    def issue(number, *items, blocked=0):
+        return {"number": number, "issueDependenciesSummary": {"blockedBy": blocked},
+                "projectItems": {"nodes": list(items)}}
+
+    def answer(*issues, more=False, remaining=4000):
+        return {"data": {"rateLimit": {"remaining": remaining, "resetAt": "2026-11-25T12:00:00Z"},
+                         "repository": {"issues": {"pageInfo": {"hasNextPage": more}, "nodes": list(issues)}}}}
+
+    issues = (issue(3, item("Ready", "P2")), issue(4, item("In Progress", "P1")),
+              issue(8, item("Ready", "P1")), issue(9, item("Ready", "P1"), blocked=1),
+              issue(11), issue(12, item("Ready", "P1", project=2)))
+    cases.append(("board read: the Ready issues by priority, and every open issue",
+                  read_with(answer(*issues)),
+                  Board([(8, ready_at), (3, ready_at)], {3, 4, 8, 9, 11, 12})))
+    cases.append(("board read: a list cut at 100 has no set of open issues, and the Ready ones it has",
+                  read_with(answer(*issues, more=True)), Board([(8, ready_at), (3, ready_at)], None)))
+    cases.append(("board read: no issue is open", read_with(answer()), Board([], set())))
+    cases.append(("board read: a low budget reads nothing", read_with(answer(*issues, remaining=499)), None))
     return cases
 
 
@@ -932,6 +1055,7 @@ def frontend_cases():
                   [line for line in ran if line.startswith("hc get") and not re.fullmatch(r"hc get t\d+ --json", line)],
                   []))
     cases.extend(stand_in_cases(tui))
+    cases.extend(resting_cases())
     cases.extend(pilot_flow_cases())
     return cases
 
@@ -1031,18 +1155,19 @@ def remove_worktree(d, session, wt, dry, merged):
     log(f"{session}: worktree removed{merged}")
 
 
-def finish(d, repo, worker, dry):
-    """Closes a worker's tab when its session has ended; True if it did."""
-    n = worker.n
+def verdict(repo, worker):
+    """(why the worker's session is over, or None; whether it is at rest)."""
     state = frontend.session_state(worker.session)
     if state == frontend.ENDED:
-        reason = "its session exited"
-    elif state == frontend.AT_REST:
-        reason = last_line(repo, n, worker.session)
-        if reason is None:
-            return False
-    else:
-        return False
+        return "its session exited", False
+    if state == frontend.AT_REST:
+        return last_line(repo, worker.n, worker.session), True
+    return None, False
+
+
+def finish(d, repo, worker, reason, dry):
+    """Closes the tab of a worker whose session is over, and its worktree."""
+    n = worker.n
     if dry:
         log(f"{repo}#{n}: {reason}; would close tab {worker.tab}")
         frontend.close_tab(worker.tab, dry=True)
@@ -1050,7 +1175,6 @@ def finish(d, repo, worker, dry):
         frontend.close_tab(worker.tab)
         log(f"{repo}#{n}: {reason}; tab closed")
     clean_up(d, worker.name, dry)
-    return True
 
 
 def worktree_settings():
@@ -1129,26 +1253,57 @@ def round_(d, repo, name, launched, dry):
     (None while it runs). An issue still Ready counts as Ready, but is started
     again only when its board item changed after that end (#164): it went back
     to Ready, not the same block again. The comparison uses the `updatedAt` the
-    round's board read already returns, so it costs no API call."""
+    round's board read already returns, so it costs no API call.
+
+    A session at rest that printed no last line is over once its issue is no
+    longer among the repo's open issues (#274). The round reads the board once,
+    the first time it needs to: for such a session, or for a free slot. While
+    every slot is held, that read is the only request the round makes, and
+    only when a session is at rest without its last line."""
     space = frontend.find_space(name)
     if space is None and not dry:
         raise Failed(f"no Herdr workspace named {name}")
-    busy = set()
+    reads = []
+
+    def board():
+        if not reads:
+            reads.append(read_board(repo))
+        return reads[0]
+
+    def ended(worker, reason):
+        finish(d, repo, worker, reason, dry)
+        launched[worker.n] = now_utc()
+
+    busy, resting = set(), []
     for worker in frontend.workers(space, dry):
-        n = worker.n
-        if finish(d, repo, worker, dry):
-            launched[n] = now_utc()
+        reason, at_rest = verdict(repo, worker)
+        if reason:
+            ended(worker, reason)
+        elif at_rest:
+            resting.append(worker)
         else:
-            busy.add(n)
+            busy.add(worker.n)
+    if resting:
+        current = board()
+        still_open = current.still_open if current else None
+        if current and still_open is None:
+            log(f"{repo}: more than 100 open issues: a session at rest cannot be told from one "
+                "whose issue is closed")
+        for worker in resting:
+            if still_open is not None and worker.n not in still_open:
+                ended(worker, "its issue is closed")
+            else:
+                busy.add(worker.n)
     for n in launched:
         if n not in busy and launched[n] is None:
             launched[n] = now_utc()
     free = slots(repo) - len(busy)
     if free <= 0:
         return False
-    found = ready(repo)
-    if found is None:
+    current = board()
+    if current is None:
         return False
+    found = current.ready
     todo, left = [], []
     for n, changed in found:
         if n in busy:
