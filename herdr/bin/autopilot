@@ -17,8 +17,9 @@ per issue, each in its own tab and worktree (README.md, Autopilot).
                                     trusts it in Claude Code; `.` for the
                                     workspace's plugins and trust only
   autopilot --self-test             checks how the last line is recognised, when
-                                    a session at rest is closed, the front ends
-                                    and the app backend
+                                    a session at rest is closed, how a session
+                                    starts on the model and effort the board
+                                    chose, the front ends and the app backend
 
 <repo> is the repo's directory in the workspace, or its path. The front end is
 the one asked for, with --frontend or OXC0_HERDR_FRONTEND; else the one this
@@ -32,6 +33,10 @@ rest with its issue closed, and starts one session per free slot:
 
   claude --permission-mode auto --settings .worktrees/.hooks.json \
     -n <session>-<n> -w <session>-<n> "/0xc0:work-issue <repo>#<n>"
+
+A session runs on the repo's model and effort, unless the issue's board item
+sets `Model` or `Effort`: then `--settings` names a file of its own, with
+those two settings, `.worktrees/.<session>-<n>.json`.
 
 It never closes a session that is working or waiting on the operator, and
 turns itself off once no session runs and a fresh read of the board shows
@@ -65,6 +70,8 @@ WORKTREES = ROOT / ".worktrees"
 CONF = ROOT / "herdr" / "autopilot.conf"
 HOOKS = ROOT / "claude-config" / "plugins" / "0xc0" / "hooks"
 PRIORITY = {"P1": 1, "P2": 2, "P3": 3}
+MODELS = {"Opus": "opus", "Sonnet": "sonnet", "Haiku": "haiku"}
+EFFORTS = {"High": "high", "Medium": "medium", "Low": "low"}
 LOW_BUDGET = 500
 CACHE = Path.home() / ".cache" / "0xc0"
 MARKETPLACE_STAMP = CACHE / "marketplace-updated"
@@ -107,6 +114,12 @@ query($owner: String!, $name: String!) {
             priority: fieldValueByName(name: "Priority") {
               ... on ProjectV2ItemFieldSingleSelectValue { name }
             }
+            model: fieldValueByName(name: "Model") {
+              ... on ProjectV2ItemFieldSingleSelectValue { name }
+            }
+            effort: fieldValueByName(name: "Effort") {
+              ... on ProjectV2ItemFieldSingleSelectValue { name }
+            }
           }
         }
       }
@@ -144,15 +157,26 @@ def slots(repo):
     return 1
 
 
-Board = collections.namedtuple("Board", "ready still_open")
+Board = collections.namedtuple("Board", "ready still_open settings", defaults=({},))
+
+
+def item_settings(item):
+    """The Claude Code settings a board item's `Model` and `Effort` ask for,
+    under the keys Claude Code reads them from. A field that is empty, or holds
+    an option this does not know, asks for nothing: the repo's own stays."""
+    asked = {"model": MODELS.get((item["model"] or {}).get("name")),
+             "effortLevel": EFFORTS.get((item["effort"] or {}).get("name"))}
+    return {key: value for key, value in asked.items() if value}
 
 
 def read_board(repo):
     """What a round reads of the repo's board, in one request: a Board whose
     `ready` is the repo's issues a session may take, most urgent first, as
-    (number, time its board item last changed), and whose `still_open` is the
+    (number, time its board item last changed), whose `still_open` is the
     set of the repo's open issues, or None when the list is cut short and so
-    cannot say an issue is closed. None when the API budget is too low to look."""
+    cannot say an issue is closed, and whose `settings` maps a Ready issue to
+    the settings its item asks for, left out when it asks for none. None when
+    the API budget is too low to look."""
     out = run("mise", "exec", "--", "gh", "api", "graphql",
               "-f", f"query={QUERY}", "-f", f"owner={ORG}", "-f", f"name={repo}",
               cwd=ROOT)
@@ -171,10 +195,12 @@ def read_board(repo):
             status = (item["status"] or {}).get("name")
             if item["project"]["number"] == BOARD and status == "Ready":
                 priority = PRIORITY.get((item["priority"] or {}).get("name"), 9)
-                found.append((priority, issue["number"], item["updatedAt"]))
+                found.append((priority, issue["number"], item["updatedAt"], item_settings(item)))
     complete = not issues["pageInfo"]["hasNextPage"]
-    return Board([(n, at) for _, n, at in sorted(found)],
-                 {issue["number"] for issue in issues["nodes"]} if complete else None)
+    found.sort(key=lambda ready: ready[:2])
+    return Board([(n, at) for _, n, at, _ in found],
+                 {issue["number"] for issue in issues["nodes"]} if complete else None,
+                 {n: settings for _, n, _, settings in found if settings})
 
 
 def find_last_line(repo, n, screen):
@@ -758,10 +784,12 @@ def resting_cases():
         finally:
             globals()["run"] = saved
 
-    def item(status, priority, at=ready_at, project=BOARD):
+    def item(status, priority, at=ready_at, project=BOARD, model=None, effort=None):
         return {"project": {"number": project}, "updatedAt": at,
                 "status": {"name": status} if status else None,
-                "priority": {"name": priority} if priority else None}
+                "priority": {"name": priority} if priority else None,
+                "model": {"name": model} if model else None,
+                "effort": {"name": effort} if effort else None}
 
     def issue(number, *items, blocked=0):
         return {"number": number, "issueDependenciesSummary": {"blockedBy": blocked},
@@ -781,6 +809,148 @@ def resting_cases():
                   read_with(answer(*issues, more=True)), Board([(8, ready_at), (3, ready_at)], None)))
     cases.append(("board read: no issue is open", read_with(answer()), Board([], set())))
     cases.append(("board read: a low budget reads nothing", read_with(answer(*issues, remaining=499)), None))
+    cases.append(("board read: no Model or Effort set asks for no settings",
+                  read_with(answer(*issues)).settings, {}))
+
+    chosen = (issue(20, item("Ready", "P2", model="Opus")), issue(21, item("Ready", "P2", effort="Low")),
+              issue(22, item("Ready", "P1", model="Sonnet", effort="High")), issue(23, item("Ready", "P3")),
+              issue(24, item("Ready", "P3", model="Fable", effort="Max")),
+              issue(25, item("In Progress", "P1", model="Opus")),
+              issue(26, item("Ready", "P1", model="Opus"), blocked=1),
+              issue(27, item("Ready", "P1", project=2, model="Opus", effort="High")),
+              issue(28, item("Ready", "P1", model="Haiku", effort="Medium")))
+    read = read_with(answer(*chosen))
+    cases.append(("board read: Model, Effort or both of a Ready issue's item become settings, in priority order",
+                  (read.ready, read.settings),
+                  ([(22, ready_at), (28, ready_at), (20, ready_at), (21, ready_at), (23, ready_at), (24, ready_at)],
+                   {22: {"model": "sonnet", "effortLevel": "high"}, 28: {"model": "haiku", "effortLevel": "medium"},
+                    20: {"model": "opus"}, 21: {"effortLevel": "low"}})))
+    cases.append(("board read: an option it does not know asks for nothing", 24 in read.settings, False))
+    cases.append(("board read: only a Ready issue of the board, blocked by nothing, can ask for settings",
+                  [n for n in (25, 26, 27) if n in read.settings], []))
+
+    requests = []
+    saved = globals()["run"]
+    globals()["run"] = lambda *args, cwd=None: requests.append(args) or json.dumps(answer(*chosen))
+    try:
+        with contextlib.redirect_stdout(io.StringIO()):
+            read_board(repo)
+    finally:
+        globals()["run"] = saved
+    asked = [arg for arg in requests[0] if arg.startswith("query=")][0]
+    cases.append(("board read: Model and Effort come in the round's one request",
+                  (len(requests), [f'fieldValueByName(name: "{field}")' in asked for field in ("Model", "Effort")]),
+                  (1, [True, True])))
+    return cases
+
+
+def launch_cases():
+    """(what, got, want) for how a session starts on the model and effort the
+    board chose: the --settings file it names, what is in it, the log line, and
+    the file's removal. A stand-in backend and a temporary `.worktrees/`:
+    nothing runs."""
+    cases = []
+    repo = "zz-selftest"
+    started = []
+    stand_in = types.SimpleNamespace(
+        __name__="frontend.stand_in",
+        find_space=lambda name: "space",
+        workers=lambda space, dry: iter([]),
+        close_tab=lambda tab, dry=False: None,
+        start_session=lambda space, name, directory, command, env, dry=False: started.append(
+            (name, shlex.split(command), env)))
+    saved = {name: globals()[name] for name in ("HOOKS", "WORKTREES", "claim", "slots", "read_board")}
+    saved_backend = frontend.backend
+    with tempfile.TemporaryDirectory() as tmp:
+        hooks, worktrees = Path(tmp) / "hooks", Path(tmp) / ".worktrees"
+        hooks.mkdir()
+        (hooks / "worktree-create.sh").touch()
+        globals().update(HOOKS=hooks, WORKTREES=worktrees, claim=lambda repo, n, dry: True, slots=lambda repo: 2)
+        frontend.backend = stand_in
+
+        def settings_files():
+            return {f.name: json.loads(f.read_text()) for f in sorted(worktrees.glob(".*.json"))}
+
+        def clear():
+            for f in worktrees.glob(".*.json"):
+                f.unlink()
+
+        def start(chosen, n=5, dry=False):
+            """What one launch did: the command, its env, the log line and the files it wrote."""
+            started.clear()
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                launch(Path("/ws") / repo, repo, "space", f"{repo}-{n}", n, chosen, dry)
+            _, command, env = started[0]
+            return {"command": command, "env": env, "log": out.getvalue().split(" ", 1)[1].strip(),
+                    "files": settings_files() if worktrees.is_dir() else {}}
+
+        try:
+            hook = {event: [{"hooks": [{"type": "command", "command": shlex.quote(str(hooks / script))}]}]
+                    for event, script in (("WorktreeCreate", "worktree-create.sh"),
+                                          ("WorktreeRemove", "worktree-remove.sh"))}
+
+            def expected(file, log, **settings):
+                return {"command": ["claude", "--permission-mode", "auto", "--settings", str(worktrees / file),
+                                    "-n", f"{repo}-5", "-w", f"{repo}-5", f"/0xc0:work-issue {repo}#5"],
+                        "env": {"OXC0_AUTOPILOT": "1"}, "log": f"{repo}#5: {log}",
+                        "files": {file: {"hooks": hook, **settings}}}
+
+            for what, chosen, want in [
+                ("neither", {}, expected(".hooks.json", f"started {repo}-5")),
+                ("Model only", {"model": "opus"},
+                 expected(f".{repo}-5.json", f"started {repo}-5 on opus", model="opus")),
+                ("Effort only", {"effortLevel": "high"},
+                 expected(f".{repo}-5.json", f"started {repo}-5 on high effort", effortLevel="high")),
+                ("both", {"model": "opus", "effortLevel": "high"},
+                 expected(f".{repo}-5.json", f"started {repo}-5 on opus, high", model="opus", effortLevel="high")),
+            ]:
+                clear()
+                cases.append((f"launch: a session with {what} chosen", start(chosen), want))
+
+            clear()
+            start({"model": "opus"}, n=5)
+            second = start({"model": "haiku", "effortLevel": "low"}, n=6)
+            cases.append(("launch: two sessions with different choices have a file each",
+                          ({name: {key: value for key, value in file.items() if key != "hooks"}
+                            for name, file in second["files"].items()},
+                           second["command"][4]),
+                          ({f".{repo}-5.json": {"model": "opus"},
+                            f".{repo}-6.json": {"model": "haiku", "effortLevel": "low"}},
+                           str(worktrees / f".{repo}-6.json"))))
+
+            clear()
+            dry = start({"model": "opus", "effortLevel": "high"}, dry=True)
+            cases.append(("launch: a dry start names the file and the choice, and writes none",
+                          (dry["command"][4], dry["log"].startswith(f"{repo}#5: would start on opus, high, in "),
+                           dry["files"]),
+                          (str(worktrees / f".{repo}-5.json"), True, {})))
+
+            def play_round(board):
+                started.clear()
+                globals()["read_board"] = lambda repo: board
+                with contextlib.redirect_stdout(io.StringIO()):
+                    round_(Path("/nonexistent") / repo, repo, repo, {}, True)
+                return {name: command[command.index("--settings") + 1] for name, command, _ in started}
+
+            ready_at = "2026-11-17T00:00:00Z"
+            cases.append(("round: the settings the board read has for an issue reach its launch, and only its",
+                          play_round(Board([(7, ready_at), (8, ready_at)], {7, 8}, {7: {"model": "opus"}})),
+                          {f"{repo}-7": str(worktrees / f".{repo}-7.json"),
+                           f"{repo}-8": str(worktrees / ".hooks.json")}))
+
+            worker = frontend.Worker(5, f"{repo}-5", "T5", "S5")
+            for dry_end, left in ((True, [f".{repo}-5.json", ".hooks.json"]), (False, [".hooks.json"])):
+                worktrees.mkdir(exist_ok=True)
+                (worktrees / f".{repo}-5.json").write_text("{}")
+                (worktrees / ".hooks.json").write_text("{}")
+                with contextlib.redirect_stdout(io.StringIO()):
+                    finish(Path("/nonexistent") / repo, repo, worker, "its session exited", dry_end)
+                cases.append((f"finish: after a {'dry ' if dry_end else ''}end, the files left",
+                              sorted(settings_files()), sorted(left)))
+        finally:
+            globals().update(saved)
+            frontend.backend = saved_backend
     return cases
 
 
@@ -1056,6 +1226,7 @@ def frontend_cases():
                   []))
     cases.extend(stand_in_cases(tui))
     cases.extend(resting_cases())
+    cases.extend(launch_cases())
     cases.extend(pilot_flow_cases())
     return cases
 
@@ -1173,23 +1344,46 @@ def finish(d, repo, worker, reason, dry):
         frontend.close_tab(worker.tab, dry=True)
     else:
         frontend.close_tab(worker.tab)
+        own_settings(worker.name).unlink(missing_ok=True)
         log(f"{repo}#{n}: {reason}; tab closed")
     clean_up(d, worker.name, dry)
 
 
-def worktree_settings():
+def own_settings(session):
+    return WORKTREES / f".{session}.json"
+
+
+def settings_file(session, chosen):
+    """The file a session's --settings names: the shared hooks file, or, when
+    the board chose its model or effort, one of its own."""
+    return own_settings(session) if chosen else WORKTREES / ".hooks.json"
+
+
+def worktree_settings(session, chosen):
     """Claude Code runs a plugin's WorktreeCreate too late for `-w`, so the
-    hooks that place the worktree in .worktrees/ come in through --settings."""
+    hooks that place the worktree in .worktrees/ come in through --settings.
+    `chosen`, the model and effort the board asks for, goes in the same file:
+    --settings outranks the repo's .claude/settings.json, and only for this
+    session."""
     def hook(script):
         return [{"hooks": [{"type": "command", "command": shlex.quote(str(HOOKS / script))}]}]
 
     if not (HOOKS / "worktree-create.sh").is_file():
         raise Failed(f"no worktree hooks in {HOOKS}: is claude-config on main?")
     WORKTREES.mkdir(exist_ok=True)
-    (WORKTREES / ".hooks.json").write_text(json.dumps({"hooks": {
+    settings_file(session, chosen).write_text(json.dumps({"hooks": {
         "WorktreeCreate": hook("worktree-create.sh"),
         "WorktreeRemove": hook("worktree-remove.sh"),
-    }}, indent=2) + "\n")
+    }, **chosen}, indent=2) + "\n")
+
+
+def chosen_on(chosen):
+    """` on opus, high` for the log; an effort alone has no model to name."""
+    if not chosen:
+        return ""
+    if "model" not in chosen:
+        return f" on {chosen['effortLevel']} effort"
+    return " on " + ", ".join(chosen.values())
 
 
 def claim(repo, n, dry):
@@ -1210,23 +1404,24 @@ def claim(repo, n, dry):
     return True
 
 
-def launch(d, repo, space, session, n, dry):
-    """Starts the issue's session; False only when a failed claim should be
+def launch(d, repo, space, session, n, chosen, dry):
+    """Starts the issue's session, on the model and effort `chosen` (settings
+    keys, none for the repo's own); False only when a failed claim should be
     retried next round."""
     if not claim(repo, n, dry):
         return False
-    args = ["--permission-mode", "auto", "--settings", str(WORKTREES / ".hooks.json"),
+    args = ["--permission-mode", "auto", "--settings", str(settings_file(session, chosen)),
             "-n", session, "-w", session, f"/0xc0:work-issue {repo}#{n}"]
     command = shlex.join(["claude", *args])
     # The 0xc0 plugin's SessionStart hook skips the board read on it (#130).
     env = {"OXC0_AUTOPILOT": "1"}
     if dry:
-        log(f"{repo}#{n}: would start, in {d}: {command}")
+        log(f"{repo}#{n}: would start{chosen_on(chosen)}, in {d}: {command}")
         frontend.start_session(space, session, d, command, env, dry=True)
         return True
-    worktree_settings()
+    worktree_settings(session, chosen)
     frontend.start_session(space, session, d, command, env)
-    log(f"{repo}#{n}: started {session}")
+    log(f"{repo}#{n}: started {session}{chosen_on(chosen)}")
     return True
 
 
@@ -1326,7 +1521,7 @@ def round_(d, repo, name, launched, dry):
     elif todo:
         update_plugin(d)
     for n in todo:
-        if launch(d, repo, space, f"{name}-{n}", n, dry):
+        if launch(d, repo, space, f"{name}-{n}", n, current.settings.get(n, {}), dry):
             launched[n] = None
     return not busy and not found
 
