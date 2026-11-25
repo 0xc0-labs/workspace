@@ -28,16 +28,17 @@ runs on:
 [`infrastructure/docs/zones.md`](https://github.com/0xc0-labs/infrastructure/blob/main/docs/zones.md). What follows is why
 they are so.
 
-**The three RKE2 nodes are identical, and all three are servers** (operator
-decision, 2026-09-27): each runs the control plane and etcd, and takes
-workloads. In Kubernetes the role is configuration, not a different machine;
-three servers keep etcd's quorum through the loss of one VM.
+**The three RKE2 servers are identical** (operator decision, 2026-09-27): each
+runs the control plane and etcd, and takes workloads. In Kubernetes the role is
+configuration, not a different machine; three servers keep etcd's quorum
+through the loss of one VM.
 
 **Capacity grows with agents; etcd stays at three servers** (operator
 decision, 2026-09-30). An agent runs workloads only, with no control plane or
 etcd: a fourth server would tolerate no more failures than three, and two
-would tolerate none. `vm-rke2-04` is the first, sized and disked like the
-servers, Longhorn included. On one host it adds capacity, not availability.
+would tolerate none. The agents are `vm-rke2-04` to `-06`, in the `apps` and
+`sandbox` pools, which [platform](platform.md) sizes and places. On `pve-2`
+they add capacity, not availability.
 
 **Outside the cluster, deliberately:** the vm-access pair is the admin way in,
 and the vm-ci pair builds and changes the infrastructure, the cluster included.

@@ -4,10 +4,10 @@ Part of the closed design ([the index](design.md)): not reopened without an
 explicit decision from the operator.
 
 
-- Everything runs on `pve-2` (operator decision, 2026-11-25; workspace#285):
-  its loss stops the estate until it returns or is restored from PBS onto
-  `pve-1`, an RTO of hours, with `ct-base-01` first since it holds the OpenTofu
-  state. That restore has to be tested and timed.
+- Everything but the sandbox node runs on `pve-2` (operator decision,
+  2026-11-25; workspace#285): its loss stops the estate until it returns or
+  is restored from PBS onto `pve-1`, an RTO of hours, with `ct-base-01` first
+  since it holds the OpenTofu state. That restore has to be tested and timed.
 - `pve-1` alone has no quorum (operator decision, 2026-11-23; workspace#285,
   votes 2 and 1): it starts nothing and its configuration is read-only until
   `pve-2` returns.
@@ -22,6 +22,18 @@ explicit decision from the operator.
   system and the VM disks are on them, and RAID 1 survives one failing. The
   operator will ask Hetzner to replace it, in his words of 2026-11-24: «si lo
   pediré, pero más tarde/otro día, nosotros seguimos adelante».
+- OpenObserve's container cannot restart once its volume holds more than about
+  165 thousand files (accepted by the operator on 2026-11-25; workspace#288):
+  it runs on a node that labels its containers, and containerd relabels a
+  volume recursively when a container starts there, which takes longer than
+  the two minutes kubelet allows, so the start loops. Its volume held 3.3
+  million files when it moved, so the operator let its 30 days of data go and
+  the volume was recreated empty on 2026-11-25, since the stack may move to
+  Grafana (workspace#290). The count is back above that line about a day and a
+  half after the reset. What limits it is that a running OpenObserve is not
+  affected: the relabel is at the start. What ends it is the observability
+  change, workspace#290; until then, a loop is cleared by emptying the volume,
+  as was done on 2026-11-25.
 - Dependency on Cloudflare to get in, with Hetzner Rescue as the way out.
 - One cluster holds shared services and applications, Vault included: they are
   separated by namespace and NetworkPolicy, not by zone.
@@ -118,24 +130,23 @@ explicit decision from the operator.
   [`apps/matchmark/README.md`](https://github.com/0xc0-labs/gitops/blob/main/apps/matchmark/README.md#the-factory-worker)
   and its
   [route](https://github.com/0xc0-labs/gitops/blob/main/apps/matchmark/README.md#the-subscription-route).
-- The containers of `vm-rke2-04` run without an SELinux label (accepted by
-  the operator on 2026-11-20; workspace#266): gVisor's `runsc`, which
-  isolates the sandboxes Matchmark's coding agents will run in, refuses a
-  container that carries a label; containerd labels all of a node's
-  containers or none; and the Proxmox host has no room for a node of the
-  sandboxes' own. Every pod of that node runs unlabelled, the shared
-  PostgreSQL, MariaDB, a Vault replica and Plane among them, so SELinux
-  would not hold a container that broke out of its runtime from the others'
-  files. What limits it is that the host stays Enforcing; that the pods keep
-  their Pod Security level, seccomp and dropped capabilities; that the three
-  server nodes label their containers as before; and that no service on the
-  cluster is critical yet, in the operator's words. What ends it is a node
-  of the sandboxes' own, or moving the data services to the nodes that
-  label (measured on 2026-11-20: about 1 CPU and 3.5 GiB to move, which fits
-  in the other three), which the operator turned down for now: "B de
-  momento.. no nos sobran recursos". The detail is in `infrastructure`'s
-  [README](https://github.com/0xc0-labs/infrastructure/blob/main/README.md#gvisor-on-vm-rke2-04),
-  section "gVisor on vm-rke2-04".
+- The containers of `vm-rke2-06`, the sandbox node, run without an SELinux
+  label (accepted by the operator on 2026-11-20; workspace#266, narrowed to
+  that node alone on 2026-11-25; workspace#288): gVisor's `runsc`, which
+  isolates the sandboxes Matchmark's coding agents run in, refuses a container
+  that carries a label, and containerd labels all of a node's containers or
+  none. Every pod of that node runs unlabelled, so SELinux would not hold a
+  container that broke out of its runtime from the others' files there. What
+  limits it is that nothing but the sandboxes and the per-node agents runs on
+  that node, its taint keeping every other pod off, so the shared PostgreSQL,
+  MariaDB, Vault and Plane, and every other node's containers, label as
+  before; that a sandbox is disposable, with no volume on the node, which is
+  left out of the backup; that the host stays Enforcing; and that the pods keep
+  their Pod Security level, seccomp and dropped capabilities. What ends it is a
+  runtime for the sandboxes that runs with labels. The detail is in
+  `infrastructure`'s
+  [README](https://github.com/0xc0-labs/infrastructure/blob/main/README.md#gvisor-on-the-sandbox-node),
+  section "gVisor on the sandbox node".
 - Nothing but Matchmark's own code stops its factory from merging a pull
   request in `matchmark-playground` (accepted by the operator on 2026-11-20;
   workspace#272): the factory acts on GitHub as an App, `matchmark-bot`, that
