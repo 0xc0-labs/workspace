@@ -203,12 +203,16 @@ Tempo alone held the data, and OpenObserve was removed that day.
   its volume does not bring the relabel loop back.
 - **Logs and traces: Loki (30 days) and Tempo (14 days), monolithic, on two
   private R2 buckets**, their keys in Vault. Tempo's metrics generator answers
-  the TraceQL metrics the trace dashboards read. R2 and not a Longhorn volume,
-  because Loki writes a file per chunk and the relabel loop would be back; and
-  not an object store in the cluster, which costs memory and a volume, nor
-  Hetzner's, which only costs less past about 400 GB: R2 is cents a month with
-  no egress fee ([discarded](../discarded.md)). The orchestrator chose it,
-  under the delegation above.
+  the TraceQL metrics the trace dashboards read. R2 is the operator's choice,
+  made on 2026-11-25 after the orchestrator put it against two others: an
+  object store in the cluster, which needs no token but would bring the
+  relabel loop back, with the Storage Box already at 70 %; and Hetzner Object
+  Storage, 6.49 € a month fixed with 1 TB, which costs less only past about
+  450 GB, where R2 is about 1.35 $ a month at 100 GB and has no egress fee. A
+  Longhorn volume was out as well: Loki writes a file per chunk and the relabel
+  loop would be back. The operator asked «100gb en r2 cuánto sería? porque yo
+  creo que loki va a ocupar bastante más» and «y el bucket de hetzner?», and
+  decided: «ah ok pues bueno, dale entonces» ([discarded](../discarded.md)).
 - **Alerts are Grafana's, with no Alertmanager** (operator, 2026-11-25: «no se
   podría usar mejor grafana alerts? me gustan más»): one place for rules,
   silences and destinations, with rules over Loki as well as Prometheus. Sixteen

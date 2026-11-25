@@ -39,13 +39,17 @@ explicit decision from the operator.
   send, or a chat webhook, to be chosen.
 - Grafana's admin login is a password generated into Vault at the operator's
   request (accepted on 2026-11-25; workspace#290), an exception to the
-  operator writing every secret himself. It is one admin account, with no SSO
-  and no second factor, whose value lives in Vault alone. What limits it is
-  that Grafana is reached over WARP only, and that the secret, at
-  `platform/grafana/admin`, is read by the `monitoring` role alone, apart from
-  the operator's own login. What ends it is OIDC through Zitadel, once that
-  exists, or the operator writing a new value, which Vault Secrets Operator
-  takes to Grafana by restarting it.
+  operator writing every secret himself. He asked the orchestrator to create
+  the secrets' paths empty for him to fill («créame tú los secretos vacíos pls
+  y yo los relleno») and, for Grafana's, said: «el de grafana créalo tú mismo,
+  admin password al azar que tú generes». The orchestrator generated it with
+  `openssl rand` straight into Vault, and it was never shown. It is one admin
+  account, with no SSO and no second factor, whose value lives in Vault alone.
+  What limits it is that Grafana is reached over WARP only, and that the
+  secret, at `platform/grafana/admin`, is read by the `monitoring` role alone,
+  apart from the operator's own login. What ends it is OIDC through Zitadel,
+  once that exists, or the operator writing a new value, which Vault Secrets
+  Operator takes to Grafana by restarting it.
 - Dependency on Cloudflare to get in, with Hetzner Rescue as the way out.
 - One cluster holds shared services and applications, Vault included: they are
   separated by namespace and NetworkPolicy, not by zone.
