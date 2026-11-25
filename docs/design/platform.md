@@ -263,14 +263,21 @@ this, never a follow-up:
 - **traces:** OTLP to `otel-gateway`, joined to Traefik's trace through
   `traceparent`. That means egress to the gateway, and the namespace admitted
   in the collector's `otlp-from-senders`.
-- **RUM, when it has a frontend: Faro, which is pending** (workspace#290,
-  phase 3). Until it lands no site sends RUM, and no trace starts in the
-  visitor's browser. What self-hosted Faro gives is events and measurements in
-  Loki and traces in Tempo, with dashboards of ours; Grafana's Frontend
-  Observability app and Session Replay are Grafana Cloud's, so OpenObserve's
-  RUM screen and session replay go with it. The phase has to check whether Faro
-  keeps anything in the visitor's browser: OpenObserve's SDK stored nothing,
-  and so needed no consent banner.
+- **RUM, when it has a frontend: Faro** (workspace#290, phase 3, done on
+  2026-11-25). Both sites send it: `offby1.cc` and `artistlabco.com` since
+  their v0.4.0, and `artistlabco.com`'s CMS admin (`artistlabco-com-cms`)
+  through `@0xc0-labs/strapi-plugin-admin-setup`. The client is `initRum` in
+  `@0xc0-labs/observability`, on the Faro web SDK, and `RUM_ENABLED=true` on a
+  Deployment turns it on. Each site posts to its own origin, at
+  `/rum/faro/collect`, which Traefik routes, rate-limited and with `Cookie` and
+  `Authorization` removed, to the Faro receiver of the OpenTelemetry gateway;
+  the gateway keeps only the allowed apps (`offby1-cc`, `artistlabco-com`,
+  `artistlabco-com-cms`) and writes to Loki. The browser stores nothing, no
+  cookie and no storage, so no consent banner is needed: the client turns off
+  the parts of Faro that would store, and what it collects is in the package's
+  [README](https://github.com/0xc0-labs/packages/blob/main/packages/observability/README.md).
+  Grafana's Frontend Observability app and Session Replay are Grafana Cloud's,
+  so OpenObserve's RUM screen and session replay went with it.
 
 **Plane is the exception to the rule above** (operator decision, 2026-11-19;
 workspace#250): it has only what the cluster takes of every pod and route,
