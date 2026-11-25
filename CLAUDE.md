@@ -327,9 +327,9 @@ Where a document belongs (operator decision, 2026-10-12; workspace#85):
 - Secrets live in Vault (`vault` repo, README), never in a repo, not even
   encrypted. A file holding sensitive material is a bug. The operator writes and
   rotates them; Claude writes policies and wiring, never a value.
-- Before proposing any IP or subnet, check it against `zones` and `vms` in
-  `infrastructure/environments/prod/terraform.tfvars` and the reserved ranges
-  in `infrastructure/docs/zones.md`, which are off limits.
+- Before proposing any IP or subnet, check it against `zones`, `vms` and
+  `containers` in `infrastructure/environments/prod/terraform.tfvars` and the
+  reserved ranges in `infrastructure/docs/zones.md`, which are off limits.
 - What is discarded stays discarded. The list and the reasons are in
   `docs/discarded.md`. Do not reopen it unless the human explicitly asks.
 - **Semgrep runs in CI only.** A session never runs it on the machine: it
@@ -345,10 +345,18 @@ change goes through a PR linked to an issue.
 
 What runs today:
 
-- **The node** (`pve-1`), run by `infrastructure` from its OpenTofu root
-  (`environments/prod`): the SDN zones (`mgmt`, `ci`, `platform`), the zone
-  firewall, and the node's firewall on DROP. Traefik on the node (the host's
-  reverse proxy, not the cluster's ingress) is reached over WARP only.
+- **The nodes** (`pve-1`, `pve-2`), two Proxmox nodes in one cluster with no
+  QDevice and no HA, run by `infrastructure` from its OpenTofu root
+  (`environments/prod`). `pve-2` is the main node, with 2 votes: it runs every
+  guest and holds each zone's gateway, the SNAT and PBS. `pve-1`, with 1 vote,
+  runs no guest and carries the zones' bridges at layer 2 only. The zones
+  (`mgmt`, `ci`, `platform`) are plain bridges over Hetzner vSwitches, not
+  SDN; the zone firewall and each node's firewall on DROP come from the same
+  root. Both nodes have their NVMe in RAID 1 (workspace#285).
+- **The base services**, in `ct-base-01`, an LXC on `pve-2` in `ci`
+  (`10.10.1.30`): Traefik (the reverse proxy of the Proxmox UI, PBS and
+  RustFS, not the cluster's ingress) and RustFS (the OpenTofu state), reached
+  over WARP only. There is no Docker on the nodes.
 - **The templates** every VM clones, baked by Packer from the official
   Debian and Rocky cloud images that OpenTofu imports.
 - **The VMs outside the cluster**: `vm-access-01` and `vm-access-02`,
@@ -358,8 +366,9 @@ What runs today:
 - **One RKE2 cluster** on Rocky Linux in `platform`, behind the HAProxy load
   balancers that also carry the public tunnel. ArgoCD deploys everything else
   in it from `gitops`. The `vm-lb` pair and the `vm-rke2` nodes are its VMs,
-  and its worker node also runs gVisor for Matchmark's sandboxes
-  (workspace#266).
+  its worker node also runs gVisor for Matchmark's sandboxes
+  (workspace#266), and Longhorn keeps two replicas of each volume on data
+  disks that live on `pve-2`'s SATA RAID 1.
 - **Vault** in the cluster, holding every secret. CI logs in with GitHub's
   OIDC token, one JWT role per repo, and no repo holds a secret or an Actions
   secret. The cluster's components read theirs through Vault Secrets

@@ -5,14 +5,51 @@ an explicit decision from the operator.
 
 ## Stack
 
-Proxmox VE 9 on a Hetzner dedicated server, 2× NVMe in mdadm RAID 0 ·
-PBS to a Hetzner Storage Box · RustFS for the OpenTofu state · Cloudflare R2
-for the applications' files · Resend for their email · Cloudflare Free
-(Tunnel, Access, WARP) · Packer + OpenTofu + Ansible · GitHub Actions with
-self-hosted runners · RKE2 on Rocky Linux · HAProxy + keepalived · ArgoCD ·
-Traefik with the Gateway API · CrowdSec · cert-manager with Let's Encrypt ·
-external-dns · Longhorn · Headlamp · Vault · OpenObserve with the
-OpenTelemetry Operator · Hetzner Rescue as the emergency path.
+Proxmox VE 9 on two Hetzner dedicated servers in one cluster, each with 2×
+NVMe in mdadm RAID 1 · PBS to a Hetzner Storage Box · RustFS for the OpenTofu
+state, in an LXC · Cloudflare R2 for the applications' files · Resend for their
+email · Cloudflare Free (Tunnel, Access, WARP) · Packer + OpenTofu + Ansible ·
+GitHub Actions with self-hosted runners · RKE2 on Rocky Linux · HAProxy +
+keepalived · ArgoCD · Traefik with the Gateway API · CrowdSec · cert-manager
+with Let's Encrypt · external-dns · Longhorn · Headlamp · Vault · OpenObserve
+with the OpenTelemetry Operator · Hetzner Rescue as the emergency path.
+
+**Two Proxmox nodes in one cluster, `pve-2` the main one** (operator
+decisions, 2026-11-23 to 2026-11-25; workspace#285). The cluster is named
+`cluster`: two nodes, no QDevice, no HA, `pve-2` with 2 votes and `pve-1` with
+1, so `pve-2` keeps quorum alone and `pve-1` alone has none. Corosync runs on
+a vSwitch of its own, VLAN 4000, `10.20.0.0/24`. On the votes, the operator
+(2026-11-23): «meteremos el nuevo nodo al cluster de proxmox y no añadiremos
+qdevice, luego a uno de ellos (ya elegirimos cual) le daremos voto de 2».
+- **`pve-2`**, the main node: i9-9900K, 16 threads, 125 GB. Two NVMe in mdadm
+  RAID 1 (storage `local`) hold the system and the VM disks, and two SATA SSDs
+  in RAID 1 (storage `sata`) hold Longhorn's data disks. It runs every guest
+  and holds every zone's gateway, forwarding, the SNAT to its public address
+  and the MSS clamp, and PBS, which backs up to the Storage Box. The operator
+  kept it as the main node on 2026-11-25, when `pve-1` was back and empty:
+  «vamos a dejar al principal que sea el tocho, movamos las VMs solo que sean
+  necesarias al otro y listo». That replaced the choice of the day before that
+  `pve-1` would take the role back.
+- **`pve-1`**: 12 threads, 62.6 GB. Reinstalled on 2026-11-24/25 with its two
+  NVMe in RAID 1 and rejoined. It runs no guest: it carries the zones' bridges
+  with no address on them, and when `pve-2` is down it is reached on its public
+  SSH.
+
+RAID 1 on the NVMe replaces the RAID 0 of 2026-09-23 on both nodes. `pve-2`'s
+have used 73 % of their rated life and one has logged 23 media errors, and at
+level 1 the array survives one drive failing: replacing it needs no reinstall
+and no restore, as the array rebuilds onto the new drive. The operator chose
+it on 2026-11-23: «RAID1 si». `pve-1` was reinstalled for it. **The guests are
+not spread over the two nodes**: etcd and Vault have three members each and
+need two, so neither survives the loss of either node, and spreading them or
+the VM pairs only changes which node is critical; the runners, the load
+balancers and the WARP connectors do nothing on `pve-1` without what `pve-2`
+holds ([discarded](../discarded.md)). How a node is installed, joined and
+rejoined, and where each thing runs, is `infrastructure`'s:
+[`docs/architecture.md`](https://github.com/0xc0-labs/infrastructure/blob/main/docs/architecture.md),
+[`docs/zones.md`](https://github.com/0xc0-labs/infrastructure/blob/main/docs/zones.md) and its README, in
+[Adding a node](https://github.com/0xc0-labs/infrastructure/blob/main/README.md#adding-a-node) and
+[A node that rejoins](https://github.com/0xc0-labs/infrastructure/blob/main/README.md#a-node-that-rejoins).
 
 **ArgoCD is installed with the cluster, and everything else in the cluster by
 ArgoCD** (operator decision, 2026-09-29, replacing the OpenTofu root of
@@ -155,8 +192,25 @@ layer 4, with no WAF of their own. open-appsec can be reconsidered for the
 public applications.
 
 **Longhorn is the cluster's storage** (operator decision, 2026-09-29): the
-default `StorageClass`, three replicas on different nodes, on each RKE2 node's
-two data disks, the agents' included. It has no backup target of its own: **PBS backs the VMs up whole**,
+default `StorageClass`, on each RKE2 node's data disks, the agents' included.
+**It keeps two replicas, not three** (operator decision, 2026-11-25;
+workspace#285, answering «si»). Every RKE2 node runs on `pve-2`, so all the
+copies are on one host, on its RAID 1, and each protects against something
+different: a failing disk, the RAID; `pve-2` failing, PBS's daily backups,
+since every copy is on that host; an RKE2 VM rebooting or breaking, which is
+what happens in practice, Longhorn's replicas, as the volume's pod starts on
+another node from the other copy and Longhorn rebuilds the second. A third
+copy only covers two VMs failing at once, which in practice is the host
+failing, where it does not help. Two replicas give 50 % more room for volumes
+and a third fewer writes to the drives that hold them. What they do not cover:
+while a node reboots, the volumes with a copy on it run on one copy until it is
+rebuilt ([accepted risk](../accepted-risks.md)). The data disks live on
+`pve-2`'s SATA RAID 1 (storage `sata`), 300 GiB a node, moved there on
+2026-11-25 when the cluster's inventory found Longhorn short of room
+(0xc0-labs/infrastructure#310); about 480 GiB of volumes fit. How it is set up
+is `gitops`'
+[`platform/longhorn/README.md`](https://github.com/0xc0-labs/gitops/blob/main/platform/longhorn/README.md).
+Longhorn has no backup target of its own: **PBS backs the VMs up whole**,
 data disks included, and that is what the timed restore tests.
 
 **The applications' files live in Cloudflare R2** (operator decision,
@@ -441,10 +495,19 @@ How it is deployed and operated is `gitops`' own, in its
 **Application repos carry the `app` topic** (operator decision,
 2026-10-09), set in `.github`'s `terraform.tfvars` with the others.
 
-Zones are Proxmox SDN: one Simple zone, a VNet and a subnet per zone, the host
-as `.1` and SNAT for egress, all in OpenTofu through `bpg/proxmox`. Zones
-spanning nodes do not exist: there is one node. Native Proxmox firewall through the same
-provider.
+Zones are plain Linux bridges over Hetzner vSwitches, with no SDN (operator
+decision, 2026-11-23; 0xc0-labs/infrastructure#271): one vSwitch per zone
+(`mgmt` 4001, `ci` 4002, `platform` 4003), and on each node a VLAN interface
+on the public NIC and a bridge named after the zone, both at MTU 1400, which a
+vSwitch carries at most. Every guest is at 1400 and the pod network at 1350.
+`pve-2` holds each zone's `.1` and does the SNAT for egress; `pve-1`'s bridges
+are layer 2 only. EVPN, and an SDN zone per node, were put to the operator
+first, and bridges over vSwitches do the same with less: «si vamos a ahcerlo
+asi mas sencillo, adelante, vamos co ello» ([discarded](../discarded.md)). The
+bridges and the native Proxmox firewall are OpenTofu's through `bpg/proxmox`;
+the gateway's SNAT, forwarding and MSS clamp are lines written by hand on
+`pve-2`, explained in `infrastructure`'s
+[`docs/zones.md`](https://github.com/0xc0-labs/infrastructure/blob/main/docs/zones.md).
 
 ## The admin, for the people who edit
 

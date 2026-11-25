@@ -16,13 +16,15 @@ Kubernetes cluster and its load balancer. Separation inside the cluster is by
 namespace and NetworkPolicy, not by zone.
 
 Reserved so they never overlap:
-`10.11.0.0/16` node 2 · `10.20.0.0/16` Hetzner Cloud and vSwitch ·
-`10.42.0.0/16` RKE2 pods · `10.43.0.0/16` RKE2 services ·
-`10.66.66.0/24` future lab.
+`10.11.0.0/16` a second node's own zones, unused: the second node carries the
+same zones over the vSwitches · `10.20.0.0/16` Hetzner Cloud and vSwitch, of
+which `10.20.0.0/24` is the nodes' link · `10.42.0.0/16` RKE2 pods ·
+`10.43.0.0/16` RKE2 services · `10.66.66.0/24` future lab.
 
 ## Machines
 
-The VMs, their roles, sizes and addresses:
+The VMs and the container, their roles, sizes, addresses and the node each
+runs on:
 [`infrastructure/docs/zones.md`](https://github.com/0xc0-labs/infrastructure/blob/main/docs/zones.md). What follows is why
 they are so.
 
@@ -55,16 +57,42 @@ creates the nodes and the two LB VMs, and Ansible writes HAProxy's backends from
 the node list. HAProxy fronts the Kubernetes API (6443, 9345) and the ingress
 NodePorts; keepalived moves its VIP between the two VMs.
 
-The host (`pve-1`, `pve.0xc0.cc`) holds `.1` in every zone and is the router
-and the firewall. `eno1` keeps the public IP. Each zone is an SDN VNet with no
-physical port, and egress is SNAT through `eno1` — Hetzner drops unknown MACs
-on the public interface, so guests never bridge onto it.
+**Two Proxmox nodes, and one of them routes** (operator decisions, 2026-11-23
+to 2026-11-25; workspace#285). `pve-2` holds `.1` in every zone and, with it,
+forwarding, the SNAT and the MSS clamp: it is the router and the firewall.
+`pve-1` carries the same bridges with no address on them. Each zone is a Hetzner
+vSwitch, and on each node a VLAN interface of `eno1` and a plain bridge named
+after the zone, both at MTU 1400, which a vSwitch carries at most; every guest
+is at 1400 and the pod network at 1350. There is no SDN (operator decision,
+2026-11-23). `eno1` keeps the public IP, and egress is SNAT through `pve-2`'s
+`eno1`, to its public address, `142.132.139.52`. Hetzner drops unknown MACs on
+the public interface, so guests are never bridged onto it, only onto their
+zone's VLAN interface. How each piece is laid out is `infrastructure`'s:
+[`docs/zones.md`](https://github.com/0xc0-labs/infrastructure/blob/main/docs/zones.md)
+and
+[`docs/architecture.md`](https://github.com/0xc0-labs/infrastructure/blob/main/docs/architecture.md).
 
-Besides Proxmox, the host runs the base services, **outside IaC**:
+**Egress is `pve-2`'s alone, with none per node** (operator decision,
+2026-11-25; workspace#285): «ok si es mejor así». A guest on `pve-1` leaves
+through `pve-2` as well, so it loses its egress while `pve-2` is down
+([accepted risks](../accepted-risks.md), [discarded](../discarded.md)).
 
-- **Traefik** — reverse proxy for the Proxmox UI, PBS and RustFS.
+**The base services run in `ct-base-01`**, an unprivileged LXC on `pve-2`, in
+zone `ci`, at `10.10.1.30`, with no Docker anywhere (operator decision,
+2026-11-24; workspace#285): «mejor lxc, puedes montarlo en el pve-2?».
+OpenTofu makes it and Ansible configures what runs in it, from the pipeline:
+
+- **Traefik** — reverse proxy for the Proxmox UI, PBS and RustFS (`pve`,
+  `pbs`, `s3` and `s3-console`, under `0xc0.cc`).
 - **RustFS** — S3-compatible store holding the OpenTofu state (`s3.0xc0.cc`).
-- **PBS** — backups, with the datastore on a Hetzner Storage Box.
+
+It is in `ci`, not `mgmt`: the runners reach RustFS, and nothing enters `mgmt`
+from another zone but SSH from the CI VMs. After a disaster it is restored from
+PBS first, since it holds the state. Its operation is in `infrastructure`'s
+[README](https://github.com/0xc0-labs/infrastructure/blob/main/README.md#ct-base-01-traefik-and-rustfs).
+
+**PBS** stays on `pve-2`'s host, outside IaC: backups, with the datastore on a
+Hetzner Storage Box.
 
 ## Transit
 
@@ -77,12 +105,15 @@ port.
 Inside `platform`, the cluster needs more than TCP (VXLAN for the pod network,
 VRRP for keepalived), so each entry in the matrix can name its protocol.
 
-The node is on a DROP policy: 22, 443 and 8006 from the admin zones, 22 never
-from ci, the metrics port from platform, and from the internet only SSH, as
+Each node is on a DROP policy, with the same rules: 22 and 8006 from `mgmt`,
+8006 from `ci`, the metrics port from `platform`, and 8007, PBS on the host
+that routes, from `ct-base-01` alone among the guests (Traefik towards PBS) and
+from the other node, for its guests. From the internet only SSH, as
 break-glass (operator decision, 2026-09-26): the Hetzner firewall keeps it
-closed until the operator opens it, and sshd is key-only. Traefik (Proxmox UI,
-PBS, RustFS) is reached over WARP, where Gateway resolves its hostnames to the
-node's address in mgmt. If WARP breaks, the way back is that SSH, then the
+closed until the operator opens it, and sshd is key-only. No zone reaches 443
+on a node: Traefik (Proxmox UI, PBS, RustFS) is in `ct-base-01`, reached over
+WARP, where Gateway resolves its hostnames to the container's address,
+`10.10.1.30`. If WARP breaks, the way back is that SSH on either node, then the
 Hetzner Rescue system.
 
 No other zone initiates towards mgmt, with one exception: SSH from the CI VMs'
@@ -145,4 +176,5 @@ playbook (operator decision, 2026-09-29).
   create CI's own access (`.github`'s and `vault`'s first applies;
   [platform](platform.md)). What runs in the cluster goes
   through ArgoCD, from the `gitops` repo.
-- **Egress**: VM → `.1` of its zone → NAT behind the public IP.
+- **Egress**: guest → `.1` of its zone, on `pve-2` → SNAT behind `pve-2`'s
+  public address, `142.132.139.52`, whichever node the guest runs on.
