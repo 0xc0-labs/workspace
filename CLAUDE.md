@@ -296,9 +296,9 @@ Where a document belongs (operator decision, 2026-10-12; workspace#85):
 - **Every application ships observable**: OTLP to
   `otel-gateway.opentelemetry.svc.cluster.local` (logs go on stdout instead,
   in the OpenTelemetry JSON line that `@0xc0-labs/observability` writes, which
-  the node agent reads), and RUM when it has a frontend, through Faro once
-  workspace#290's phase 3 lands: until then no site sends RUM. All in the same
-  change that deploys it (`docs/design/platform.md`).
+  the node agent reads), and RUM when it has a frontend, through Faro
+  (`initRum` in `@0xc0-labs/observability`). All in the same change that
+  deploys it (`docs/design/platform.md`).
 - **Everything written is in English**: file contents, file and directory
   names, code comments, commit messages, branch names, PR titles and bodies,
   docs. The conversation with the operator is in Spanish.
@@ -385,8 +385,9 @@ What runs today:
   applications and Traefik send OTLP to; a node agent reads the containers'
   logs. Loki and Tempo keep their data on R2. Grafana, at `grafana.int.0xc0.cc`
   over WARP only, holds the dashboards and the alerts, which reach nobody until
-  a contact point is chosen. OpenObserve is gone, and no site sends RUM until
-  Faro.
+  a contact point is chosen. OpenObserve is gone. RUM goes through Faro, from
+  `offby1.cc`, `artistlabco.com` and its CMS admin, into Loki through the
+  gateway.
 - **The applications**: the `offby1.cc` landing page and Mautic, from
   `gitops/apps/`; Plane, Matchmark's tracker (the org's work stays on the
   project board), reached over WARP only (0xc0-labs/workspace#247);

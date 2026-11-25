@@ -22,13 +22,6 @@ explicit decision from the operator.
   system and the VM disks are on them, and RAID 1 survives one failing. The
   operator will ask Hetzner to replace it, in his words of 2026-11-24: «si lo
   pediré, pero más tarde/otro día, nosotros seguimos adelante».
-- No site sends RUM until Faro lands (accepted on 2026-11-25; workspace#290,
-  phase 3): OpenObserve's RUM went with OpenObserve and its replacement is not
-  built yet, so nothing records what a visitor's browser sees, its errors and
-  load times, or the browser's side of a trace. What limits it is that the
-  servers' side is covered: each site's backend sends traces, logs and
-  metrics, and Traefik's per-route traffic is in Prometheus. What ends it is
-  Faro, in `@0xc0-labs/observability` and in each site.
 - Grafana's alerts reach nobody until a contact point is chosen (accepted on
   2026-11-25; workspace#290): the sixteen rules are evaluated and listed in
   Grafana, but its notification policy has no destination, so a volume
