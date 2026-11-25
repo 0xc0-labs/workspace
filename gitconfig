@@ -6,6 +6,7 @@
 
 [core]
 	sshCommand = ssh -i ~/.ssh/0xc0-homelab -o IdentitiesOnly=yes
+	excludesFile = ~/git/github/0xc0-homelab/workspace/shared-excludes
 
 [init]
 	# Every repo in this org is main-only.

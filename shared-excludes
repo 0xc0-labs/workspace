@@ -1,0 +1,3 @@
+# Shared by every repo through core.excludesFile in gitconfig (CLAUDE.md, "Git identity").
+
+.DS_Store
