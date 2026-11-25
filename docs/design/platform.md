@@ -24,28 +24,29 @@ qdevice, luego a uno de ellos (ya elegirimos cual) le daremos voto de 2».
 - **`pve-2`**, the main node: i9-9900K, 16 threads, 125 GB. Two NVMe in mdadm
   RAID 1 (storage `local`) hold the system and the VM disks, and two SATA SSDs
   in RAID 1 (storage `sata`) hold Longhorn's data disks. It runs every guest
-  and holds every zone's gateway, forwarding, the SNAT to its public address
-  and the MSS clamp, and PBS, which backs up to the Storage Box. The operator
-  kept it as the main node on 2026-11-25, when `pve-1` was back and empty:
+  but one, the sandbox node, and holds every zone's gateway, forwarding, the
+  SNAT to its public address and the MSS clamp, and PBS, which backs up to the
+  Storage Box. The operator kept it as the main node on 2026-11-25, when
+  `pve-1` was back and empty:
   «vamos a dejar al principal que sea el tocho, movamos las VMs solo que sean
   necesarias al otro y listo». That replaced the choice of the day before that
   `pve-1` would take the role back.
 - **`pve-1`**: 12 threads, 62.6 GB. Reinstalled on 2026-11-24/25 with its two
-  NVMe in RAID 1 and rejoined. It runs no guest: it carries the zones' bridges
-  with no address on them, and when `pve-2` is down it is reached on its public
-  SSH.
+  NVMe in RAID 1 and rejoined. It runs one guest, the sandbox node
+  `vm-rke2-06` (below), and carries the zones' bridges with no address on
+  them; when `pve-2` is down it is reached on its public SSH.
 
 RAID 1 on the NVMe replaces the RAID 0 of 2026-09-23 on both nodes. `pve-2`'s
 have used 73 % of their rated life and one has logged 23 media errors, and at
 level 1 the array survives one drive failing: replacing it needs no reinstall
 and no restore, as the array rebuilds onto the new drive. The operator chose
 it on 2026-11-23: «RAID1 si». `pve-1` was reinstalled for it. **The guests are
-not spread over the two nodes**: etcd and Vault have three members each and
-need two, so neither survives the loss of either node, and spreading them or
-the VM pairs only changes which node is critical; the runners, the load
-balancers and the WARP connectors do nothing on `pve-1` without what `pve-2`
-holds ([discarded](../discarded.md)). How a node is installed, joined and
-rejoined, and where each thing runs, is `infrastructure`'s:
+not spread over the two nodes**, but for the sandbox node: etcd and Vault have
+three members each and need two, so neither survives the loss of either node,
+and spreading them or the VM pairs only changes which node is critical; the
+runners, the load balancers and the WARP connectors do nothing on `pve-1`
+without what `pve-2` holds ([discarded](../discarded.md)). How a node is
+installed, joined and rejoined, and where each thing runs, is `infrastructure`'s:
 [`docs/architecture.md`](https://github.com/0xc0-labs/infrastructure/blob/main/docs/architecture.md),
 [`docs/zones.md`](https://github.com/0xc0-labs/infrastructure/blob/main/docs/zones.md) and its README, in
 [Adding a node](https://github.com/0xc0-labs/infrastructure/blob/main/README.md#adding-a-node) and
@@ -63,15 +64,94 @@ component (Longhorn, Traefik, CrowdSec, Vault, monitoring, applications) from
 the `gitops` repo, which is public: no repo credentials. A private repo would
 get a read-only GitHub App, its key from Vault through Ansible the same way.
 
-**The worker node, `vm-rke2-04`, also runs gVisor as a second container
-runtime, for Matchmark's sandboxes** (operator decision, 2026-11-20;
-workspace#270, from the test in workspace#266). The RuntimeClass `gvisor`
-puts a pod under it, and `runsc` refuses a container that carries an SELinux
-label, so that node labels none of its containers: an
-[accepted risk](../accepted-risks.md). A small file- and process-heavy
-workload took 2.8 times as long under gVisor as under the default runtime.
-What the cluster runs and how is in `gitops`'
-[`platform/gvisor/README.md`](https://github.com/0xc0-labs/gitops/blob/main/platform/gvisor/README.md).
+**The cluster runs on three node pools, the infrastructure, the applications
+and the sandboxes each apart** (operator decisions, 2026-11-25; workspace#288).
+A node's pool is its label `0xc0.cc/pool`:
+
+| Pool | Nodes | Host | Size | Taint | Runs |
+|---|---|---|---|---|---|
+| `infra` | `vm-rke2-01`, `-02`, `-03`, the servers | `pve-2` | 6 vCPU / 16 GiB | none | the control plane, etcd, Vault, Longhorn, OpenObserve, PostgreSQL, MariaDB, Argo CD, CrowdSec and everything else under `gitops`' `platform/` |
+| `apps` | `vm-rke2-04`, `-05` | `pve-2` | 4 vCPU / 12 GiB | `0xc0.cc/pool=apps:NoSchedule` | everything under `gitops`' `apps/` |
+| `sandbox` | `vm-rke2-06` | `pve-1` | 10 vCPU / 32 GiB, a 150 GiB root, no Longhorn | `0xc0.cc/pool=sandbox:NoSchedule` | Matchmark's sandboxes under gVisor, and nothing else |
+
+What the operator decided, on 2026-11-25:
+- **The infrastructure apart from the applications, and a big sandbox node
+  among the workers**: «hay que hacer 2 cosas, revisar el cluster y
+  diferenciar entre apps e infrastructura para redimensionar los nodos y luego
+  a parte los nodos worker (apps) dentro de estos estará el nodo de sandbox
+  (gordo)».
+- **Shared databases go with the infrastructure**, and what belongs to one
+  application goes with it (Plane's Valkey, RabbitMQ and object store,
+  Matchmark's RustFS). Put to him as the rule, he answered «ok vale me
+  convences».
+- **A second application node and a hard taint**: «pues creamos otro nodo de
+  apps y hacemos taint fuerte y listo no?». The cost put to him was one
+  maintenance window: Longhorn's system components take a new toleration only
+  with every volume detached, so the taint needs the cluster's workloads
+  stopped once, and the window joined the servers' resize, which restarts them
+  and needs Vault unsealed anyway. His answer: «sin problema, vale». The window
+  ran on 2026-11-25. A soft taint is [discarded](../discarded.md).
+- **The names**: «mejor 04 y 05 apps y 06 sandbox».
+- **No PVC for the sandboxes** ([discarded](../discarded.md)): by Matchmark's
+  design a sandbox is disposable, with `emptyDir` only, deleted at the end of
+  each attempt. What survives is in Temporal, in Matchmark's RustFS and in git.
+
+**Why** (the inventory of 2026-11-25): the infrastructure was 85 % of the
+memory and 96 % of the CPU the cluster used, and the applications about 0.1 CPU
+and 4 GiB. The sandboxes shared `vm-rke2-04` with a Vault pod, PostgreSQL,
+MariaDB and OpenObserve, and gVisor made that whole node run without SELinux
+labels. Taking the infrastructure off that node adds about 5 GiB to the
+servers, hence 16 GiB each. After the change `pve-2` keeps about 40 GB free and
+`pve-1` about 30 GB.
+
+**Placement is one rule**: shared services, databases included, go with the
+infrastructure, and what belongs to one application goes with that
+application. It comes to this:
+- Every workload under `gitops`' `apps/` is pinned to `pool=apps` and tolerates
+  its taint, from one shared component, `apps/_components/pool-apps`.
+- The infrastructure needs no placement: it has none of its own, both other
+  pools reject it, and it lands on the servers.
+- The sandboxes reach `pool=sandbox` through the RuntimeClass `gvisor`, which
+  selects the pool and tolerates its taint, so a workload sets
+  `runtimeClassName` and nothing else.
+- The per-node agents tolerate the taints they must. Longhorn, CrowdSec's
+  agent, Traefik and the log collector's agent tolerate the `apps` taint; the
+  log collector's agent alone tolerates the `sandbox` one, as that node has no
+  Longhorn disk.
+
+How each is set is `gitops`': the
+[Longhorn README](https://github.com/0xc0-labs/gitops/blob/main/platform/longhorn/README.md#the-apps-taint)
+for its toleration, and the
+[gVisor README](https://github.com/0xc0-labs/gitops/blob/main/platform/gvisor/README.md)
+for the RuntimeClass. The pools, their labels and taints, and the window's
+steps are `infrastructure`'s: its README,
+[Node pools](https://github.com/0xc0-labs/infrastructure/blob/main/README.md#node-pools)
+and
+[the window](https://github.com/0xc0-labs/infrastructure/blob/main/README.md#the-apps-taint-and-the-servers-size-a-maintenance-window),
+and
+[`docs/zones.md`](https://github.com/0xc0-labs/infrastructure/blob/main/docs/zones.md#machines),
+for the nodes.
+
+**The sandbox node, `vm-rke2-06`, is the one node that runs gVisor**, as a
+second container runtime, for Matchmark's sandboxes (operator decision,
+2026-11-20; workspace#270, from the test in workspace#266; moved to a node of
+its own on 2026-11-25; workspace#288). `runsc` refuses a container that
+carries an SELinux label, and containerd labels all of a node's containers or
+none, so that node labels none: an [accepted risk](../accepted-risks.md), as
+small as the node, since nothing but the sandboxes runs there. `vm-rke2-04`,
+which ran gVisor as the shared worker from 2026-11-20, has its labels back; the
+operator let it leave before the window, 2026-11-25: «no pasa nada, si
+matchmark no esta en produccion, dale». A small file- and process-heavy
+workload took 2.8 times as long under gVisor as under the default runtime. The
+node has no Longhorn volume and is left out of the daily PBS backup, as a
+sandbox is disposable; its egress leaves through `pve-2`, like every guest on
+`pve-1`. With the node down the sandboxes wait in Temporal and resume when it
+returns. What Matchmark's design asks of the node is in its
+[`docs/architecture/deployment.md`](https://github.com/0xc0-labs/matchmark/blob/main/docs/architecture/deployment.md);
+what the cluster runs for it, in `gitops`'
+[`platform/gvisor/README.md`](https://github.com/0xc0-labs/gitops/blob/main/platform/gvisor/README.md);
+how the node is built, with the way back from gVisor, in `infrastructure`'s
+[README](https://github.com/0xc0-labs/infrastructure/blob/main/README.md#gvisor-on-the-sandbox-node).
 
 **Vault runs in the cluster** (operator decision, 2026-09-24). A running
 cluster never needs Vault to start: the RKE2 token and ArgoCD's admin password
@@ -83,7 +163,7 @@ restart. A cluster built from nothing needs Vault restored first, from PBS:
 an accepted risk ([accepted risks](../accepted-risks.md)).
 
 **Vault's shape** (at the operator's request, 2026-09-30; gitops#33): three
-servers in HA over integrated storage (Raft), one per RKE2 node, each on a
+servers in HA over integrated storage (Raft), one per RKE2 server, each on a
 Longhorn volume. Shamir seal: the keys
 live in the operator's password manager and offline, never in the cluster or
 any repo. It is on the WARP-only path, `https://vault.int.0xc0.cc`; Traefik ends
@@ -192,11 +272,13 @@ layer 4, with no WAF of their own. open-appsec can be reconsidered for the
 public applications.
 
 **Longhorn is the cluster's storage** (operator decision, 2026-09-29): the
-default `StorageClass`, on each RKE2 node's data disks, the agents' included.
+default `StorageClass`, on the data disks of the servers and the application
+nodes, never the sandbox node's.
 **It keeps two replicas, not three** (operator decision, 2026-11-25;
-workspace#285, answering «si»). Every RKE2 node runs on `pve-2`, so all the
-copies are on one host, on its RAID 1, and each protects against something
-different: a failing disk, the RAID; `pve-2` failing, PBS's daily backups,
+workspace#285, answering «si»). Every node with a Longhorn disk runs on
+`pve-2`, so all the copies are on one host, on its RAID 1, and each protects
+against something different: a failing disk, the RAID; `pve-2` failing, PBS's
+daily backups,
 since every copy is on that host; an RKE2 VM rebooting or breaking, which is
 what happens in practice, Longhorn's replicas, as the volume's pod starts on
 another node from the other copy and Longhorn rebuilds the second. A third

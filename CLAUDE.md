@@ -348,11 +348,12 @@ What runs today:
 - **The nodes** (`pve-1`, `pve-2`), two Proxmox nodes in one cluster with no
   QDevice and no HA, run by `infrastructure` from its OpenTofu root
   (`environments/prod`). `pve-2` is the main node, with 2 votes: it runs every
-  guest and holds each zone's gateway, the SNAT and PBS. `pve-1`, with 1 vote,
-  runs no guest and carries the zones' bridges at layer 2 only. The zones
-  (`mgmt`, `ci`, `platform`) are plain bridges over Hetzner vSwitches, not
-  SDN; the zone firewall and each node's firewall on DROP come from the same
-  root. Both nodes have their NVMe in RAID 1 (workspace#285).
+  guest but the sandbox node and holds each zone's gateway, the SNAT and PBS.
+  `pve-1`, with 1 vote, runs the sandbox node and carries the zones' bridges
+  at layer 2 only. The zones (`mgmt`, `ci`, `platform`) are plain bridges over
+  Hetzner vSwitches, not SDN; the zone firewall and each node's firewall on
+  DROP come from the same root. Both nodes have their NVMe in RAID 1
+  (workspace#285).
 - **The base services**, in `ct-base-01`, an LXC on `pve-2` in `ci`
   (`10.10.1.30`): Traefik (the reverse proxy of the Proxmox UI, PBS and
   RustFS, not the cluster's ingress) and RustFS (the OpenTofu state), reached
@@ -366,9 +367,12 @@ What runs today:
 - **One RKE2 cluster** on Rocky Linux in `platform`, behind the HAProxy load
   balancers that also carry the public tunnel. ArgoCD deploys everything else
   in it from `gitops`. The `vm-lb` pair and the `vm-rke2` nodes are its VMs,
-  its worker node also runs gVisor for Matchmark's sandboxes
-  (workspace#266), and Longhorn keeps two replicas of each volume on data
-  disks that live on `pve-2`'s SATA RAID 1.
+  in three pools, the label `0xc0.cc/pool` (workspace#288): `infra`, the three
+  servers, with the shared services and their databases; `apps`, `vm-rke2-04`
+  and `-05`, tainted, with every application; and `sandbox`, `vm-rke2-06` on
+  `pve-1`, tainted, the one node that runs gVisor, for Matchmark's sandboxes
+  (workspace#266). Longhorn keeps two replicas of each volume on data disks
+  that live on `pve-2`'s SATA RAID 1, on every node but the sandbox node.
 - **Vault** in the cluster, holding every secret. CI logs in with GitHub's
   OIDC token, one JWT role per repo, and no repo holds a secret or an Actions
   secret. The cluster's components read theirs through Vault Secrets
