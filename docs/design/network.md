@@ -106,11 +106,13 @@ Inside `platform`, the cluster needs more than TCP (VXLAN for the pod network,
 VRRP for keepalived), so each entry in the matrix can name its protocol.
 
 Each node is on a DROP policy, with the same rules: 22 and 8006 from `mgmt`,
-8006 from `ci`, the metrics port from `platform`, and from the internet only
-SSH, as break-glass (operator decision, 2026-09-26): the Hetzner firewall keeps
-it closed until the operator opens it, and sshd is key-only. No zone reaches
-443 on a node: Traefik (Proxmox UI, PBS, RustFS) is in `ct-base-01`, reached
-over WARP, where Gateway resolves its hostnames to the container's address,
+8006 from `ci`, the metrics port from `platform`, and 8007, PBS on the host
+that routes, from `ct-base-01` alone among the guests (Traefik towards PBS) and
+from the other node, for its guests. From the internet only SSH, as
+break-glass (operator decision, 2026-09-26): the Hetzner firewall keeps it
+closed until the operator opens it, and sshd is key-only. No zone reaches 443
+on a node: Traefik (Proxmox UI, PBS, RustFS) is in `ct-base-01`, reached over
+WARP, where Gateway resolves its hostnames to the container's address,
 `10.10.1.30`. If WARP breaks, the way back is that SSH on either node, then the
 Hetzner Rescue system.
 

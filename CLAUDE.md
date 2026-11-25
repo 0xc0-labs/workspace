@@ -327,9 +327,9 @@ Where a document belongs (operator decision, 2026-10-12; workspace#85):
 - Secrets live in Vault (`vault` repo, README), never in a repo, not even
   encrypted. A file holding sensitive material is a bug. The operator writes and
   rotates them; Claude writes policies and wiring, never a value.
-- Before proposing any IP or subnet, check it against `zones` and `vms` in
-  `infrastructure/environments/prod/terraform.tfvars` and the reserved ranges
-  in `infrastructure/docs/zones.md`, which are off limits.
+- Before proposing any IP or subnet, check it against `zones`, `vms` and
+  `containers` in `infrastructure/environments/prod/terraform.tfvars` and the
+  reserved ranges in `infrastructure/docs/zones.md`, which are off limits.
 - What is discarded stays discarded. The list and the reasons are in
   `docs/discarded.md`. Do not reopen it unless the human explicitly asks.
 - **Semgrep runs in CI only.** A session never runs it on the machine: it

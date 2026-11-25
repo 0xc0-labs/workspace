@@ -37,7 +37,8 @@ qdevice, luego a uno de ellos (ya elegirimos cual) le daremos voto de 2».
 
 RAID 1 on the NVMe replaces the RAID 0 of 2026-09-23 on both nodes. `pve-2`'s
 have used 73 % of their rated life and one has logged 23 media errors, and at
-level 1 Hetzner can replace a drive with the node running; the operator chose
+level 1 the array survives one drive failing: replacing it needs no reinstall
+and no restore, as the array rebuilds onto the new drive. The operator chose
 it on 2026-11-23: «RAID1 si». `pve-1` was reinstalled for it. **The guests are
 not spread over the two nodes**: etcd and Vault have three members each and
 need two, so neither survives the loss of either node, and spreading them or
