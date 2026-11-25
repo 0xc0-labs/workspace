@@ -12,7 +12,7 @@ explicit decision from the operator.
 | kube-vip, MetalLB    | the load balancer VMs keep the VIP for WARP and the API (operator decision, 2026-09-29) |
 | BunkerWeb           | stores its configuration in SQLite                   |
 | OPNsense, VyOS      | fragile network hop and immature providers           |
-| VLAN zones now      | one node: an SDN Simple zone isolates the zones; VLAN or EVPN zones come with node 2 |
+| SDN for the zones, with two nodes | EVPN, or a Simple zone per node: plain bridges over one Hetzner vSwitch per zone do the same with less. Put to the operator, he chose the simpler: «si vamos a ahcerlo asi mas sencillo, adelante, vamos co ello» (operator decision, 2026-11-23; infrastructure#271) |
 | Terraform Stacks    | paid                                                 |
 | OpenBao             | Vault's BSL does not affect this case                |
 | SOPS+age            | replaced by Vault: every secret in one place, read over OIDC, nothing in the repos (operator decision, 2026-10-01) |
@@ -21,6 +21,11 @@ explicit decision from the operator.
 | Two K8s clusters    | same hardware, adds no isolation; one cluster, separated by namespace (operator decision, 2026-09-24) |
 | A VM per role (vm-edge, vm-apps, vm-data, vm-vault, vm-platform) | replaced by the cluster (operator decision, 2026-09-24) |
 | Docker Compose on VMs | replaced by the cluster; `gitops` holds ArgoCD manifests |
+| A QDevice | the second node takes 2 votes and the first 1 instead, so `pve-2` keeps quorum alone: «meteremos el nuevo nodo al cluster de proxmox y no añadiremos qdevice, luego a uno de ellos (ya elegirimos cual) le daremos voto de 2» (operator decision, 2026-11-23; workspace#285) |
+| Egress per node | per-node egress only helps if something on `pve-1` must keep working while `pve-2` is down, and with `pve-2` holding every gateway, the SNAT, PBS and the 2 votes, and etcd and Vault unable to survive the loss of either node, nothing on `pve-1` does; it would cost two routes on every guest and an SNAT of its own on `pve-1`. Reconsidered if a service on `pve-1` must stay reachable, or reach out, while `pve-2` is down, such as a second WARP connector for break-glass access (operator decision, 2026-11-25: «ok si es mejor así»; workspace#285) |
+| Three Longhorn replicas | every Longhorn node runs on `pve-2`: a disk failing is the RAID's, `pve-2` failing is PBS's, and an RKE2 VM failing is what two replicas cover; a third copy only covers two VMs failing at once, which is the host failing, where it does not help. Two give 50 % more room and a third fewer writes (operator decision, 2026-11-25: «si»; workspace#285) |
+| Docker on the Proxmox hosts, for Traefik and RustFS | replaced by an LXC, `ct-base-01`, made by OpenTofu and configured by Ansible from `infrastructure`: «mejor lxc, puedes montarlo en el pve-2?» (operator decision, 2026-11-24; workspace#285) |
+| Spreading etcd, Vault or the VM pairs across both nodes | with two nodes neither etcd nor Vault (3 members each, 2 needed) survives the loss of either one, so spreading them only changes which node is critical; the runners, the load balancers and the WARP connectors do nothing on `pve-1` without what `pve-2` holds: «vamos a dejar al principal que sea el tocho, movamos las VMs solo que sean necesarias al otro y listo» (operator decision, 2026-11-25; workspace#285) |
 | Bug bounty lab      | reserved range, out of scope                         |
 | Flux                | operator decision (2026-09-22): GitOps is ArgoCD     |
 | One ordered pipeline for the cluster's deployment | the three steps stay apart: OpenTofu creates the VMs, Ansible configures them and installs ArgoCD, ArgoCD syncs gitops (operator decision, 2026-09-30, infrastructure#112) |

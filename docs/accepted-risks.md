@@ -4,11 +4,24 @@ Part of the closed design ([the index](design.md)): not reopened without an
 explicit decision from the operator.
 
 
-- Single piece of hardware, with no second node: a hardware failure is an RTO
-  of hours.
-- Disks in RAID 0 (operator decision, 2026-09-23): one NVMe failure loses the
-  whole node. Recovery is a reinstall plus a restore from PBS on the Storage
-  Box, which is why that restore has to be tested and timed.
+- Everything runs on `pve-2` (operator decision, 2026-11-25; workspace#285):
+  its loss stops the estate until it returns or is restored from PBS onto
+  `pve-1`, an RTO of hours, with `ct-base-01` first since it holds the OpenTofu
+  state. That restore has to be tested and timed.
+- `pve-1` alone has no quorum (operator decision, 2026-11-23; workspace#285,
+  votes 2 and 1): it starts nothing and its configuration is read-only until
+  `pve-2` returns.
+- A guest on `pve-1` loses its egress while `pve-2` is down (operator decision,
+  2026-11-25; workspace#285, no egress per node): the gateways and the SNAT are
+  `pve-2`'s. `pve-1` itself is reached on its public SSH.
+- Longhorn with two replicas (operator decision, 2026-11-25; workspace#285):
+  while a node reboots, the volumes with a copy on it run on one copy until it
+  is rebuilt.
+- `pve-2`'s NVMe are worn (accepted on 2026-11-25; workspace#285): 73 % of
+  their rated life used, and one has 23 media and data integrity errors. The
+  system and the VM disks are on them, and RAID 1 survives one failing. The
+  operator will ask Hetzner to replace it, in his words of 2026-11-24: «si lo
+  pediré, pero más tarde/otro día, nosotros seguimos adelante».
 - Dependency on Cloudflare to get in, with Hetzner Rescue as the way out.
 - One cluster holds shared services and applications, Vault included: they are
   separated by namespace and NetworkPolicy, not by zone.
