@@ -108,6 +108,31 @@ Then, every minute, it:
    round after the worktree is gone, with no board change and no restart
    (#166).
 
+   **Choosing a session's model and effort.** A session runs on the repo's
+   settings: the model and effort of its committed `.claude/settings.json`
+   (Models, below). To run one issue on others, set the issue's board item
+   before it turns Ready: `Model` (`Opus`, `Sonnet` or `Haiku`) and `Effort`
+   (`High`, `Medium` or `Low`), in the item's row on the board or with
+   `gh project item-edit 1 --owner 0xc0-labs --url <issue's URL> --field Model
+   --value Opus`, as the pilot moves an issue to In Progress. Either may be
+   left empty: an empty field keeps the repo's value, and an item that sets
+   neither starts exactly as above. The two fields come in the board read of
+   every round, so they cost no request. An option the pilot does not know,
+   one added to the board later, asks for nothing.
+
+   For an item that sets either, `--settings` names a file of the session's
+   own, `.worktrees/.<name>-<n>.json`, instead of `.hooks.json`: the same hooks
+   and, for what is set, `model` (`opus`, `sonnet`, `haiku`) and `effortLevel`
+   (`high`, `medium`, `low`). Claude Code ranks `--settings` above the repo's
+   `.claude/settings.json`, so they win for that session alone: no repo's
+   `.claude/` changes, no environment variable carries them to a later
+   session, and two sessions with different choices never share a file. The
+   pilot removes the file when it closes the session's tab. The log says what
+   it chose when it is not the repo's, `gitops#688: started gitops-688 on opus,
+   high`, or `on high effort` when only the effort is set (#296). The
+   choice is read when the session starts: a running session keeps its own,
+   and a session opened by hand, `claude -n <name>`, keeps the repo's.
+
 After a round with no session tab and nothing Ready on the board, it closes
 its own tab. The board is read fresh in that round, after the finished
 sessions' tabs are closed, and an issue the pilot already started that is
@@ -217,14 +242,15 @@ hc run --bg --no-parent --no-notify --json --name <name>-autopilot --cwd <cwd> \
   -- env OXC0_HERDR_FRONTEND=app <workspace>/herdr/bin/autopilot run <repo's directory>
 ```
 
-The arguments run as given, with no shell in between, and the core gives a
-terminal its own environment, not the caller's: that is why the variables go
-through `env`. A session has `--keep`, so that the core never runs its command
-again by itself, which would start a new conversation; a loop has none, since a
-loop run again reads the board and the sessions and goes on (`hc get` reads
-`"keep": true` for it all the same: what a restart of the core does to them,
-below). Neither has
-`--rm`: what is left of a terminal that ended is what the pilot reads.
+When the board chose the session's model or effort, `--settings` names its own
+file there too (Autopilot, above). The arguments run as given, with no shell
+in between, and the core gives a terminal its own environment, not the
+caller's: that is why the variables go through `env`. A session has `--keep`,
+so that the core never runs its command again by itself, which would start a
+new conversation; a loop has none, since a loop run again reads the board and
+the sessions and goes on (`hc get` reads `"keep": true` for it all the same:
+what a restart of the core does to them, below). Neither has `--rm`: what is
+left of a terminal that ended is what the pilot reads.
 
 A session's state comes from the core, from `hc ls --all` filtered by the
 labels, and is read at every round:
@@ -556,6 +582,11 @@ autopilot or by hand, on any machine, runs the same, whatever the user's own
 settings say. Every session had run Opus with the 1M context and burned the
 plan's usage (operator decisions, 2026-10-12; workspace#145). A running
 session keeps its model until it ends.
+
+The one exception is a session the autopilot starts for an issue whose board
+item sets `Model` or `Effort`: those two settings, from a file of the session's
+own, outrank the repo's for that session alone (Choosing a session's model and
+effort, in Autopilot, above; #296).
 
 ## Names
 
@@ -929,7 +960,9 @@ reading the answers of `hc` and `herdr-app`, and the autopilot's flow of
 `start`, `toggle` and `state` over stand-in backends, with no Herdr running; a
 round's choice of which sessions to close (a session at rest with its issue
 closed, open or unreadable, one working, one with its last line) and the
-board read it rests on; it also says what each backend has. Of those answers, the rows of `hc ls`, the
+board read it rests on, with and without the `Model` and `Effort` fields; how
+a session starts with a model only, an effort only, both or neither (its
+settings file and the log line); it also says what each backend has. Of those answers, the rows of `hc ls`, the
 answers of `hc run`, `hc rm`, `hc wait` and `hc read` (`{"complete": true,
 "how": "stitched", "text": …}`), the fields of `hc get` (including
 `foreground`, a running loop's too, 0xc0-labs/workspace#235) and `herdr-app
