@@ -108,19 +108,44 @@ servers, hence 16 GiB each. After the change `pve-2` keeps about 40 GB free and
 **Placement is one rule**: shared services, databases included, go with the
 infrastructure, and what belongs to one application goes with that
 application. It comes to this:
-- Every workload under `gitops`' `apps/` is pinned to `pool=apps` and tolerates
-  its taint, from one shared component, `apps/_components/pool-apps`.
+- A pod in an application namespace, one that carries the label
+  `0xc0.cc/pool: apps`, is pinned to `pool=apps` and tolerates its taint by
+  Kubernetes admission, and nothing under `gitops`' `apps/` patches it in.
+  `pool-apps-placement`, a MutatingAdmissionPolicy, adds the node selector and
+  the toleration to a pod that lacks them; `pool-apps-guard`, a
+  ValidatingAdmissionPolicy, rejects a pod there that selects another pool, and
+  one that selects `apps` from a namespace without the label. A new application
+  namespace takes the label and nothing else.
 - The infrastructure needs no placement: it has none of its own, both other
   pools reject it, and it lands on the servers.
 - The sandboxes reach `pool=sandbox` through the RuntimeClass `gvisor`, which
   selects the pool and tolerates its taint, so a workload sets
-  `runtimeClassName` and nothing else.
+  `runtimeClassName` and nothing else; both policies skip a pod that sets it.
 - The per-node agents tolerate the taints they must. Longhorn, CrowdSec's
   agent, Traefik and the log collector's agent tolerate the `apps` taint; the
   log collector's agent alone tolerates the `sandbox` one, as that node has no
   Longhorn disk.
 
+What the operator decided, on 2026-11-26 (workspace#301):
+- **Admission places the applications, not a patch in each workload and not a
+  taint on the servers**: «hazlo con la política». The patch every workload took
+  from one shared component, `apps/_components/pool-apps`, left a workload that
+  forgot it free to land on the servers, and is gone. A taint on the servers
+  would have closed that, but it needs a toleration in every platform chart and
+  a Longhorn maintenance window, as its system components take a new toleration
+  only with every volume detached ([discarded](../discarded.md)). The policies
+  need neither.
+- **The taints on `apps` and `sandbox` stay**: they keep everything else off
+  those nodes, which admission cannot do, since the scheduler places a pod after
+  admission and only a taint stops it from placing one there.
+
+The guard fails open, `failurePolicy: Ignore`, because it covers every
+namespace and a fault in it must never stop a system pod; the placement is
+scoped to the labelled namespaces and fails closed.
+
 How each is set is `gitops`': the
+[admission policies README](https://github.com/0xc0-labs/gitops/blob/main/platform/admission-policies/README.md)
+for the policies and the label, the
 [Longhorn README](https://github.com/0xc0-labs/gitops/blob/main/platform/longhorn/README.md#the-apps-taint)
 for its toleration, and the
 [gVisor README](https://github.com/0xc0-labs/gitops/blob/main/platform/gvisor/README.md)
