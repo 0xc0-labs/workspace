@@ -162,8 +162,8 @@ tab. `start` closes a dead tab and opens a new one. It looks in every front end
 that answers, not only the one in use: `on` anywhere is `on`, and `start` then
 starts nothing, since a repo never has two autopilots (Where it runs, below).
 
-`autopilot.conf` holds each repo's slots: three in `matchmark`, two in the
-other application repos and in `packages`, one in the others. Picking the repo again, or closing the
+`autopilot.conf` holds each repo's slots: three in `matchmark` and `gitops`,
+two in the other application repos and in `packages`, one in the others. Picking the repo again, or closing the
 `autopilot` tab, turns it off: nothing more starts, and the running
 sessions finish in their tabs. To hold one issue, set it Blocked on the
 board. An issue it started once is not started again until it is turned off
