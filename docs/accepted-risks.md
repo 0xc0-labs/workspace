@@ -36,13 +36,14 @@ explicit decision from the operator.
   the secrets' paths empty for him to fill («créame tú los secretos vacíos pls
   y yo los relleno») and, for Grafana's, said: «el de grafana créalo tú mismo,
   admin password al azar que tú generes». The orchestrator generated it with
-  `openssl rand` straight into Vault, and it was never shown. It is one admin
-  account, with no SSO and no second factor, whose value lives in Vault alone.
-  What limits it is that Grafana is reached over WARP only, and that the
-  secret, at `platform/grafana/admin`, is read by the `monitoring` role alone,
-  apart from the operator's own login. What ends it is OIDC through Zitadel,
-  once that exists, or the operator writing a new value, which Vault Secrets
-  Operator takes to Grafana by restarting it.
+  `openssl rand` straight into Vault, and it was never shown. It is one local
+  admin account, the fallback since 2026-11-26, when people began to sign in
+  through Cloudflare Access ([platform](design/platform.md#access-for-operators)),
+  with no second factor, whose value lives in Vault alone. What limits it is
+  that Grafana is reached over WARP only, and that the secret, at
+  `platform/grafana/admin`, is read by the `monitoring` role alone, apart from
+  an admin's own login. What ends it is the operator writing a new value, which
+  Vault Secrets Operator takes to Grafana by restarting it.
 - Dependency on Cloudflare to get in, with Hetzner Rescue as the way out.
 - One cluster holds shared services and applications, Vault included: they are
   separated by namespace and NetworkPolicy, not by zone.
@@ -116,7 +117,7 @@ explicit decision from the operator.
   no identity provider to log in against yet. Whoever reaches the panel sees
   every run with its input and its output, and can start, cancel or terminate
   one. What limits it is that the panel is reached over WARP only, which today
-  is the operator alone, and that inside the cluster only the panel, the API,
+  is the admins alone, and that inside the cluster only the panel, the API,
   the worker and the Job that creates Temporal's namespace reach its
   frontend. What ends it is the panel logging in through Zitadel, which
   Temporal's UI supports (OIDC), with the server asking for a token. The

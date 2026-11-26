@@ -260,12 +260,13 @@ Tempo alone held the data, and OpenObserve was removed that day.
   its offsets on the node and sends them to Loki. No collector scrapes. Alloy
   stays out ([discarded](../discarded.md)).
 - **Grafana** is at `grafana.int.0xc0.cc`, over WARP only like every portal.
-  Its admin login is read from Vault (`platform/grafana/admin`), with no SSO:
-  OIDC through Zitadel is for later. Its data sources and dashboards come from
-  git and are read only in the UI: the chart's Kubernetes ones, imported ones
-  for Argo CD, Longhorn, Traefik, Vault and CrowdSec, and rebuilt ones for the
-  applications, Matchmark, the traces and Kubernetes events, which replace
-  every dashboard OpenObserve had.
+  People sign in through Cloudflare Access ([access for
+  operators](#access-for-operators)), and its admin login, read from Vault
+  (`platform/grafana/admin`), is the fallback. Its data sources and dashboards
+  come from git and are read only in the UI: the chart's Kubernetes ones,
+  imported ones for Argo CD, Longhorn, Traefik, Vault and CrowdSec, and rebuilt
+  ones for the applications, Matchmark, the traces and Kubernetes events, which
+  replace every dashboard OpenObserve had.
 
 What runs, how it is checked and what the operator writes are `gitops`'
 [`kube-prometheus-stack`](https://github.com/0xc0-labs/gitops/blob/main/platform/kube-prometheus-stack/README.md),
@@ -691,6 +692,100 @@ bridges and the native Proxmox firewall are OpenTofu's through `bpg/proxmox`;
 the gateway's SNAT, forwarding and MSS clamp are lines written by hand on
 `pve-2`, explained in `infrastructure`'s
 [`docs/zones.md`](https://github.com/0xc0-labs/infrastructure/blob/main/docs/zones.md).
+
+## Access for operators
+
+How people get in to what runs the estate, as it is since 2026-11-26
+(operator decisions; workspace#308, #310). **An operator is a member of one
+GitHub team, `0xc0-labs/admins`**, and **Cloudflare Access is the one identity
+provider in front of the tools**. The operator, who owns the organization and
+the Cloudflare account, is one of them; a second person is a full operator,
+short of what stays the operator's alone (below).
+
+**Who is an operator.** A member of the team, and the operator's own emails
+beside it, which `infrastructure` reads from Vault and which get in with the
+one-time PIN when GitHub fails. The members are `.github`'s OpenTofu's, one
+line each in its `admins` map
+([README](https://github.com/0xc0-labs/.github/blob/main/README.md#the-admins-team)).
+The team is also a reviewer of every `production` environment, so a member can
+approve a run from `main`; the apply is still a human's.
+
+**The network is WARP**, which reaches the private network and every tool
+behind it ([network](network.md)). A device is enrolled through Cloudflare
+Access with either login: GitHub, which lets in a member of the team once
+Cloudflare confirms it, or the one-time PIN sent to one of the operator's
+emails. The Access applications in front of the sites, a front's staging and
+each CMS admin, keep the one-time PIN alone, since the sites' viewers log in
+there; an admin who needs one is a viewer like anyone else
+([discarded](../discarded.md)). How an admin enrolls and who views what are
+`infrastructure`'s README:
+[How an admin gets in](https://github.com/0xc0-labs/infrastructure/blob/main/README.md#how-an-admin-gets-in)
+and
+[Hostnames behind Access](https://github.com/0xc0-labs/infrastructure/blob/main/README.md#hostnames-behind-access).
+
+**Vault, Grafana and Argo CD sign people in through Cloudflare Access, as an
+OIDC provider**, one Access application each. **Admission is Cloudflare's**:
+each application admits who WARP enrollment admits, through the same reusable
+policy, and each tool makes an administrator of whoever arrives. Vault's
+`oidc` method gives the policy `admin`, for 8 h renewable to 24 h; Grafana
+gives the role `Admin` through `auth.generic_oauth`; Argo CD's default policy
+is `role:admin`, with Dex off. **The tools do not check the team** because they
+cannot: the token Cloudflare issues carries `email`, `name`, `sub`, `aud` and
+`iss`, and no team (measured on 2026-11-26). And deciding once, in one place,
+is the point: adding or removing a person touches none of the tools. Each
+client's ID and secret are a secret in Vault, which the operator carries from
+`infrastructure`'s OpenTofu state
+([Carrying the OIDC clients into Vault](https://github.com/0xc0-labs/infrastructure/blob/main/README.md#carrying-the-oidc-clients-into-vault)).
+The tools' side is in each repo's README: `vault`'s
+[Admins log in through Cloudflare Access](https://github.com/0xc0-labs/vault/blob/main/README.md#admins-log-in-through-cloudflare-access),
+the [`argocd` role](https://github.com/0xc0-labs/infrastructure/blob/main/ansible/roles/argocd/README.md)
+of `infrastructure`, and `gitops`'
+[`kube-prometheus-stack`](https://github.com/0xc0-labs/gitops/blob/main/platform/kube-prometheus-stack/README.md#grafana).
+
+**The cluster is `kubectl` with a personal client certificate**, in the group
+`admins`, valid 30 days and approved by an existing admin. Kubernetes cannot
+revoke a client certificate, so access ends when it expires, not when the
+person leaves the team. The procedure is `gitops`'
+[`platform/cluster-access`](https://github.com/0xc0-labs/gitops/blob/main/platform/cluster-access/README.md).
+
+**When Cloudflare fails**, Vault takes a login with GitHub: a member of the
+team, with a personal token and the same policy `admin`. It is a token, not a
+button, which is why it is the fallback and not the way in. Grafana and Argo CD
+keep their local `admin` accounts, with their passwords in Vault
+(`platform/grafana/admin`, `platform/argocd/admin`). The login is `vault`'s
+[Admins log in with GitHub: the fallback](https://github.com/0xc0-labs/vault/blob/main/README.md#admins-log-in-with-github-the-fallback).
+
+**What stays the operator's alone**: Vault's unseal keys and root token, and
+the `ops/` engine, which the `admin` policy does not reach; changing a Vault
+policy or role other than by a reviewed pull request, since the `admin` policy
+reads policies and roles and writes neither (whoever can write either can grant
+themselves anything); the organization's ownership; the Cloudflare account; and
+writing and rotating secrets, by hand ([secrets](secrets.md)). The `admin`
+policy does let a login write the KV engines `platform/`, `apps/` and `ci/`, so
+the last is kept by this rule, not by the policy.
+
+**Adding or removing a person** is one line of `admins` in `.github`'s
+`environments/prod/terraform.tfvars` and its run from `main`, behind approval.
+The tools follow, as none keeps a list. What does not follow at once is a
+client certificate, until it expires, and a session already open, until it ends
+(Vault's token lasts 8 h and renews up to 24 h).
+
+What the operator decided, on 2026-11-26:
+- **A full operator** (workspace#308): the second person operates with full
+  access, with the exceptions above: «Operador completo».
+- **The team's name** (workspace#308): «pondría admins».
+- **Plane and Proxmox are left out for now** (workspace#308): «plane ni
+  proxmox de momento no».
+- **Cloudflare Access as the provider of the three tools** (workspace#310):
+  «hacemos los 3 de una». Vault's GitHub method had turned out to need a
+  personal token: Vault signs in with a button only through OIDC, and GitHub is
+  not an OIDC provider for people. GitHub sign-in direct from Grafana and from
+  Argo CD's Dex, which was tried first, and on the sites' Access applications,
+  is [discarded](../discarded.md).
+- **The client certificates' own component** (workspace#308): the binding of
+  the group `admins` is `cluster-access`, a component of its own, so that
+  removing another one, Headlamp for one, does not take the admins' access with
+  it. He left the choice to the orchestrator: «cámbialo si ves que es mejor».
 
 ## The admin, for the people who edit
 
