@@ -147,7 +147,9 @@ of `infrastructure`'s `docs/zones.md`.
   on purpose (operator decision, 2026-09-29).
 - **Portals** (Grafana, ArgoCD, Headlamp): internal, reached only over WARP.
   None has a public record, and none is published behind Cloudflare Access
-  (operator decision, 2026-09-29).
+  (operator decision, 2026-09-29). Who signs in is another matter: Cloudflare
+  Access is the OIDC provider of Grafana, Argo CD and Vault
+  ([platform](platform.md#access-for-operators)).
 - **A front's staging behind Access** (operator decision, 2026-10-13;
   workspace#176): a front's staging can be published on a
   public name of its own domain, `staging.<domain>`, behind a Cloudflare
