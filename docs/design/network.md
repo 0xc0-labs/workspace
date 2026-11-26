@@ -117,9 +117,13 @@ WARP, where Gateway resolves its hostnames to the container's address,
 `10.10.1.30`. If WARP breaks, the way back is that SSH on either node, then the
 Hetzner Rescue system.
 
-No other zone initiates towards mgmt, with one exception: SSH from the CI VMs'
+No other zone initiates towards mgmt, with two exceptions: SSH from the CI VMs'
 addresses, not the whole `ci` zone, so the pipeline can run the vm-access
-playbook (operator decision, 2026-09-29).
+playbook (operator decision, 2026-09-29); and TCP 20241 from `platform` to
+`vm-access-01` and `vm-access-02` alone, for Prometheus to read the admin
+tunnel's connector metrics (operator decision, 2026-11-26). The rule in code is
+[invariant 5](https://github.com/0xc0-labs/infrastructure/blob/main/docs/zones.md#invariants)
+of `infrastructure`'s `docs/zones.md`.
 
 ## Flows
 
