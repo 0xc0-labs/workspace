@@ -385,9 +385,9 @@ What runs today:
 - **How people sign in**: an operator is a member of the GitHub team
   `0xc0-labs/admins`, which also approves production applies beside the
   operator: the apply is still a human's. WARP enrolls by GitHub sign-in or a
-  one-time PIN; Vault, Grafana and Argo CD sign in through Cloudflare Access;
-  `kubectl` uses a personal client certificate valid 30 days
-  (`docs/design/platform.md`, Access for operators).
+  one-time PIN; Vault, Grafana, Argo CD, Headlamp and `kubectl` sign in
+  through Cloudflare Access, with a personal client certificate valid 30 days
+  as the cluster's fallback (`docs/design/platform.md`, Access for operators).
 - **Prometheus, Loki, Tempo and Grafana** for metrics, logs and traces
   (workspace#290), behind one OpenTelemetry gateway, `otel-gateway`, that the
   applications and Traefik send OTLP to; a node agent reads the containers'

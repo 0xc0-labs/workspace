@@ -696,11 +696,11 @@ the gateway's SNAT, forwarding and MSS clamp are lines written by hand on
 ## Access for operators
 
 How people get in to what runs the estate, as it is since 2026-11-26
-(operator decisions; workspace#308, #310). **An operator is a member of one
-GitHub team, `0xc0-labs/admins`**, and **Cloudflare Access is the one identity
-provider in front of the tools**. The operator, who owns the organization and
-the Cloudflare account, is one of them; a second person is a full operator,
-short of what stays the operator's alone (below).
+(operator decisions; workspace#308, #310, #313). **An operator is a member of
+one GitHub team, `0xc0-labs/admins`**, and **Cloudflare Access is the one
+identity provider in front of the tools**. The operator, who owns the
+organization and the Cloudflare account, is one of them; a second person is a
+full operator, short of what stays the operator's alone (below).
 
 **Who is an operator.** A member of the team, and the operator's own emails
 beside it, which `infrastructure` reads from Vault and which get in with the
@@ -742,11 +742,38 @@ the [`argocd` role](https://github.com/0xc0-labs/infrastructure/blob/main/ansibl
 of `infrastructure`, and `gitops`'
 [`kube-prometheus-stack`](https://github.com/0xc0-labs/gitops/blob/main/platform/kube-prometheus-stack/README.md#grafana).
 
-**The cluster is `kubectl` with a personal client certificate**, in the group
-`admins`, valid 30 days and approved by an existing admin. Kubernetes cannot
-revoke a client certificate, so access ends when it expires, not when the
-person leaves the team. The procedure is `gitops`'
-[`platform/cluster-access`](https://github.com/0xc0-labs/gitops/blob/main/platform/cluster-access/README.md).
+**The cluster signs people in through Cloudflare Access too**, in Headlamp and
+with `kubectl`. Headlamp has a sign-in with Cloudflare; `kubectl` opens the
+browser through the plugin `kubectl oidc-login`; and both use one Access
+application, a fourth, for the cluster. The API server trusts that
+application's tokens through a structured authentication configuration, which
+`infrastructure`'s `rke2_server` role writes: the username is the token's
+email, and every login is in the group `admins`, which `gitops`'
+`platform/cluster-access` binds to `cluster-admin`. **The group is a constant**
+for the reason the other three tools do not check the team: Cloudflare's token
+carries no team, and admission is Cloudflare's. **PKCE is on everywhere.** The
+application is a public client, so `kubectl` holds no secret, and Cloudflare
+then requires a code challenge of every request to it, Headlamp's included
+(it refused Headlamp's first, on 2026-11-26: "code_challenge is required for
+this client"). Headlamp does hold the client's secret, in Vault at
+`platform/headlamp/oidc`, which the operator carries as the other tools'
+([Carrying the OIDC clients into Vault](https://github.com/0xc0-labs/infrastructure/blob/main/README.md#carrying-the-oidc-clients-into-vault)).
+The sign-in is `gitops`'
+[`platform/cluster-access`](https://github.com/0xc0-labs/gitops/blob/main/platform/cluster-access/README.md#signing-in-with-kubectl),
+and the API server's side is `infrastructure`'s
+[`rke2_server` role](https://github.com/0xc0-labs/infrastructure/blob/main/ansible/roles/rke2_server/README.md#the-api-servers-authentication-configuration).
+
+**The fallbacks are a personal client certificate and Headlamp's tokens**, for
+when Cloudflare is not reachable. The certificate is in the group `admins`,
+valid 30 days and approved by an existing admin
+([procedure](https://github.com/0xc0-labs/gitops/blob/main/platform/cluster-access/README.md#a-personal-client-certificate)).
+Headlamp's tokens are those of two ServiceAccounts, an administrator and a
+viewer, which an admin makes with `kubectl`
+([`admin.yaml`](https://github.com/0xc0-labs/gitops/blob/main/platform/headlamp/admin.yaml)).
+Kubernetes cannot revoke a client certificate, so access with one ends when it
+expires, not when the person leaves the team. For a Cloudflare login it ends
+when its token expires: a person removed from the team signs in no more, and a
+token already issued works until then.
 
 **When Cloudflare fails**, Vault takes a login with GitHub: a member of the
 team, with a personal token and the same policy `admin`. It is a token, not a
@@ -754,6 +781,7 @@ button, which is why it is the fallback and not the way in. Grafana and Argo CD
 keep their local `admin` accounts, with their passwords in Vault
 (`platform/grafana/admin`, `platform/argocd/admin`). The login is `vault`'s
 [Admins log in with GitHub: the fallback](https://github.com/0xc0-labs/vault/blob/main/README.md#admins-log-in-with-github-the-fallback).
+The cluster's fallbacks are the ones above.
 
 **What stays the operator's alone**: Vault's unseal keys and root token, and
 the `ops/` engine, which the `admin` policy does not reach; changing a Vault
@@ -768,7 +796,8 @@ the last is kept by this rule, not by the policy.
 `environments/prod/terraform.tfvars` and its run from `main`, behind approval.
 The tools follow, as none keeps a list. What does not follow at once is a
 client certificate, until it expires, and a session already open, until it ends
-(Vault's token lasts 8 h and renews up to 24 h).
+(Vault's token lasts 8 h and renews up to 24 h; a login to the cluster, until
+its token expires).
 
 What the operator decided, on 2026-11-26:
 - **A full operator** (workspace#308): the second person operates with full
@@ -786,6 +815,16 @@ What the operator decided, on 2026-11-26:
   the group `admins` is `cluster-access`, a component of its own, so that
   removing another one, Headlamp for one, does not take the admins' access with
   it. He left the choice to the orchestrator: «cámbialo si ves que es mejor».
+- **The cluster through Cloudflare Access, in Headlamp and with `kubectl`**
+  (workspace#313): Headlamp had answered 401 to 10,028 requests in the 24
+  hours before, from tabs left open with an expired 8-hour token (measured on
+  2026-11-26), and the operator asked how to stop making tokens for it: «yo
+  genero muchos tokens para entrar a headlamp». He decided for Headlamp and
+  `kubectl` together: «si venga montalo». The servers' change went in two
+  steps (0xc0-labs/infrastructure#341 and #342): the restart, the only one,
+  took a configuration that trusts nobody, and the issuer was added
+  afterwards, which the API server reloads by itself and ignores if it is
+  wrong, so a mistake in it is no outage.
 
 ## The admin, for the people who edit
 

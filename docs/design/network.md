@@ -148,7 +148,8 @@ of `infrastructure`'s `docs/zones.md`.
 - **Portals** (Grafana, ArgoCD, Headlamp): internal, reached only over WARP.
   None has a public record, and none is published behind Cloudflare Access
   (operator decision, 2026-09-29). Who signs in is another matter: Cloudflare
-  Access is the OIDC provider of Grafana, Argo CD and Vault
+  Access is the OIDC provider of Grafana, Argo CD and Vault, and of the
+  cluster, in Headlamp and with `kubectl`
   ([platform](platform.md#access-for-operators)).
 - **A front's staging behind Access** (operator decision, 2026-10-13;
   workspace#176): a front's staging can be published on a
@@ -170,9 +171,10 @@ of `infrastructure`'s `docs/zones.md`.
   `*.int.0xc0.cc` name to it for WARP devices, and those names have no public
   record. The public tunnel only ever targets the public VIP, so nothing from
   the internet reaches the internal path. Headlamp, the Kubernetes UI, is
-  one, at `headlamp.int.0xc0.cc`, logged into with a short-lived token. The
-  internal path has no WAF: CrowdSec's bouncer is on the public entrypoint
-  only.
+  one, at `headlamp.int.0xc0.cc`, where people sign in through Cloudflare
+  Access and a token is the fallback
+  ([platform](platform.md#access-for-operators)). The internal path has no
+  WAF: CrowdSec's bouncer is on the public entrypoint only.
 - **Admin**: WARP → admin tunnel → either vm-access connector → any zone. The
   Kubernetes API, SSH, Vault, Proxmox, PBS and RustFS are reached **only** this
   way, never through the public tunnel.
