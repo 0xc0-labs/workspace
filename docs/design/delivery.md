@@ -110,29 +110,41 @@ application's CI can mint write access to `gitops` and nothing else. The
 Apps opened it: it names the release or the dependency it moves, and the
 board tracks the work of people and sessions.
 
-**Only the jobs that log in to Vault run on the self-hosted runners;
-everything else runs on GitHub's** (operator decision, 2026-10-12;
-workspace#138). Two Next.js builds on one CI VM, 2 cores and 4 GB shared by
-its two runners, hang it, and the node has no memory left to give it: 62 GB,
-60 of them allocated to VMs (infrastructure#235). A private repository's
-standard GitHub runner has 2 CPUs and 8 GB to itself. So an application's
-checks and image, and `packages`' checks and releases, run there: none of
-them logs in to Vault. The jobs that do stay on the self-hosted runners, as
-Vault is reachable only from inside: an application's rc and release, for
-the Apps' tokens, and the pipelines of `infrastructure` and `vault`. The
-runner group admits those repos, `offby1.cc` among them for its release, and
-the reusable workflows they call. GitHub Free gives private repositories
-2,000 minutes a month and, with no payment method, blocks their jobs once
-they run out instead of billing them: `payload` used about 320 from
-2026-10-01 to 10-12, hung builds included. A dependency's code runs where it
-is installed and built: on GitHub's runners, beside the tokens that push an
+**The jobs that log in to Vault run on the CI VMs, and so do a private
+repository's checks and image; a public repository's run on GitHub's**
+(operator decisions, 2026-10-12; workspace#138; 2026-10-14; workspace#180;
+2026-11-27; workspace#319). Vault is reachable only from inside, so an
+application's rc and release, for the Apps' tokens, and the pipelines of
+`infrastructure` and `vault` run on the CI VMs' runners. The runner group
+admits those repos, `offby1.cc` among them for its release, and the reusable
+workflows they call. A private repository's checks and image run there too,
+on the runners that carry the label `build`, and the light jobs around them,
+`packages`' releases included, on any runner: none of them logs in to Vault.
+A public repository's checks and image run on GitHub's runners, free for it.
+On 2026-10-12 two Next.js builds on one CI VM, then 2 cores and 4 GB shared
+by its two runners, hung it and blocked CI for about 35 minutes
+(infrastructure#235), and the node had no memory left to give it: 62 GB, 60
+of them allocated to VMs. A private repository's standard GitHub runner has
+2 CPUs and 8 GB to itself, so the checks and image ran there. GitHub Free
+gives private repositories 2,000 minutes a month and, with no payment
+method, blocks their jobs once they run out instead of billing them:
+`payload` used about 320 from 2026-10-01 to 10-12, hung builds included. So
+on 2026-10-14, with 941 minutes left, the builds came back to the CI VMs,
+one per VM, the `build` label capping it. The VMs have run on `pve-2`, which
+has 128 GB, since 2026-11-25, and on 2026-11-27 each became 8 cores and 12
+GB with four runner instances, two of them `build`: four builds at once,
+each with about four cores. `matchmark`'s first run after it waited 11 s for
+a build runner, where its runs had waited 174 to 309 s, and its `check` took
+474 s, where it had taken 724. The suite runs with 4 workers, so more than
+four cores per build would not shorten it. A dependency's code runs where it
+is installed and built: on a runner, beside the tokens that push an
 application's image and publish the org's packages, and on the machines of
 people and sessions. An image or a package it poisons reaches the cluster,
 or every application that pins it. So a dependency version is taken only
 once it is three days old (`minimumReleaseAge`, in Renovate and in pnpm),
-and pnpm runs the build scripts of the packages it is told to (`allowBuilds`,
-which replaced `onlyBuiltDependencies` in pnpm 11) and no others. Which
-runner each job asks for is in the
+and pnpm runs the build scripts of the packages it is told to
+(`allowBuilds`, which replaced `onlyBuiltDependencies` in pnpm 11) and no
+others. Which runner each job asks for is in the
 [`.github` README](https://github.com/0xc0-labs/.github/blob/main/README.md).
 
 **A Python repo checks its code with `python-check`**, as a Node repo does
@@ -144,8 +156,9 @@ it. How a repo calls it is in the
 decision, 2026-10-12; workspace#93). It was decided while the checks ran on
 the self-hosted runners, which have no Docker and where nothing may listen on
 the network (`infrastructure`'s `docs/zones.md`, invariant 10), and it
-stands now that they run on GitHub's (above). An application's tests start a
-throwaway server themselves: PostgreSQL from conda-forge through mise
+stands today: a private repository's checks run there again, on the `build`
+runners, and a public one's on GitHub's (above). An application's tests start
+a throwaway server themselves: PostgreSQL from conda-forge through mise
 (`conda:postgresql`, prod's major, every package checksummed in `mise.lock`
 for Linux and macOS), `initdb` in a temporary directory, no TCP port
 (`listen_addresses=''`), a Unix socket in that directory, the repo's
