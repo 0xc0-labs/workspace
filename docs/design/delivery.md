@@ -135,8 +135,7 @@ has 128 GB, since 2026-11-25, and on 2026-11-27 each became 8 cores and 12
 GB with four runner instances, two of them `build`: four builds at once,
 each with about four cores. `matchmark`'s first run after it waited 11 s for
 a build runner, where its runs had waited 174 to 309 s, and its `check` took
-474 s, where it had taken 724. The suite runs with 4 workers, so more than
-four cores per build would not shorten it. A dependency's code runs where it
+474 s, where it had taken 724. A dependency's code runs where it
 is installed and built: on a runner, beside the tokens that push an
 application's image and publish the org's packages, and on the machines of
 people and sessions. An image or a package it poisons reaches the cluster,
