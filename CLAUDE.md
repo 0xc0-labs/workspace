@@ -367,8 +367,8 @@ What runs today:
   Debian and Rocky cloud images that OpenTofu imports.
 - **The VMs outside the cluster**: `vm-access-01` and `vm-access-02`,
   identical cloudflared connectors of the admin tunnel (WARP); `vm-ci-01` and
-  `vm-ci-02`, each with two ephemeral GitHub Actions runners, so CI runs
-  inside the network and RustFS stays closed.
+  `vm-ci-02`, each with four ephemeral GitHub Actions runners, two of them
+  for build jobs, so CI runs inside the network and RustFS stays closed.
 - **One RKE2 cluster** on Rocky Linux in `platform`, behind the HAProxy load
   balancers that also carry the public tunnel. ArgoCD deploys everything else
   in it from `gitops`. The `vm-lb` pair and the `vm-rke2` nodes are its VMs,
